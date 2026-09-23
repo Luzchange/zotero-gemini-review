@@ -55,10 +55,15 @@ def get_credentials(request: Optional[Request] = None):
         if req_zotero_lib_type:
             zotero_library_type = req_zotero_lib_type
 
+    def clean_val(v: Optional[str]) -> Optional[str]:
+        if not v or "your_" in v.lower() or "here" in v.lower():
+            return None
+        return v.strip()
+
     return {
-        "gemini_key": gemini_key,
-        "gemini_model": gemini_model,
-        "zotero_key": zotero_key,
-        "zotero_user_id": zotero_user_id,
-        "zotero_library_type": zotero_library_type,
+        "gemini_key": clean_val(gemini_key),
+        "gemini_model": gemini_model or "gemini-2.5-flash",
+        "zotero_key": clean_val(zotero_key),
+        "zotero_user_id": clean_val(zotero_user_id),
+        "zotero_library_type": zotero_library_type or "user",
     }

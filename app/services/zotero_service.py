@@ -122,12 +122,11 @@ class ZoteroService:
         Fetch primary paper items (excluding standalone notes and attachments).
         If collection_key is specified, retrieves items in that collection.
         """
-        url = f"{self.library_url}/collections/{collection_key}/items" if collection_key else f"{self.library_url}/items"
+        url = f"{self.library_url}/collections/{collection_key}/items/top" if collection_key else f"{self.library_url}/items/top"
         
         params: Dict[str, Any] = {
             "limit": limit,
             "start": start,
-            "itemType": "-attachment || -note",  # Only parent academic items
             "sort": "dateModified",
             "direction": "desc"
         }
@@ -140,7 +139,7 @@ class ZoteroService:
         async with httpx.AsyncClient(timeout=20.0) as client:
             resp = await client.get(url, headers=self.headers, params=params)
             if resp.status_code != 200:
-                logger.error(f"Failed to fetch items: {resp.status_code} {resp.text}")
+                logger.error(f"Failed to fetch items from {url}: {resp.status_code} {resp.text}")
                 return [], 0
 
             total_count = int(resp.headers.get("Total-Results", 0))
@@ -149,6 +148,10 @@ class ZoteroService:
             for item in items_data:
                 data = item.get("data", {})
                 meta = item.get("meta", {})
+
+                # Skip any standalone notes or attachments if present
+                if data.get("itemType") in ["attachment", "note"]:
+                    continue
 
                 # Extract creators/authors
                 creators_raw = data.get("creators", [])
