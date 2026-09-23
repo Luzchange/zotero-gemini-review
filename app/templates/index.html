@@ -131,6 +131,9 @@
           <button id="tab-chat" onclick="switchTab('chat')" class="tab-btn px-3 py-1.5 text-xs font-medium rounded-md text-slate-600 hover:bg-slate-100 transition">
             <i class="fa-regular fa-comments mr-1.5"></i> Library Chat
           </button>
+          <button id="tab-work-docs" onclick="switchTab('work-docs')" class="tab-btn px-3 py-1.5 text-xs font-medium rounded-md text-slate-600 hover:bg-slate-100 transition">
+            <i class="fa-solid fa-file-shield mr-1.5"></i> Work Documents
+          </button>
         </div>
 
         <!-- Action & Option Controls -->
@@ -200,6 +203,79 @@
             </div>
           </div>
 
+          <!-- Mode 5: Work Documents Controls & Upload Zone -->
+          <div id="panel-work-docs" class="mode-panel hidden space-y-3">
+            <!-- Upload Box & Active Doc Bar -->
+            <div class="grid grid-cols-12 gap-3">
+              <!-- Drag and Drop Dropzone -->
+              <div id="doc-dropzone" onclick="document.getElementById('doc-file-input').click()" 
+                   class="col-span-12 md:col-span-6 border-2 border-dashed border-emerald-300 hover:border-emerald-500 bg-emerald-50/50 hover:bg-emerald-50 rounded-lg p-3 text-center cursor-pointer transition flex flex-col items-center justify-center space-y-1">
+                <input type="file" id="doc-file-input" accept=".pdf" class="hidden" onchange="handleDocumentFileUpload(this.files)">
+                <i class="fa-solid fa-cloud-arrow-up text-emerald-600 text-lg"></i>
+                <span class="text-xs font-semibold text-emerald-900">Drop PDF Work Document here</span>
+                <span class="text-[11px] text-emerald-700">or click to browse local files (max 50MB)</span>
+              </div>
+
+              <!-- Active Document Selector & Info -->
+              <div class="col-span-12 md:col-span-6 bg-slate-50 border border-slate-200 rounded-lg p-2.5 flex flex-col justify-between">
+                <div>
+                  <div class="flex items-center justify-between text-xs mb-1">
+                    <span class="font-medium text-slate-700">Active Document:</span>
+                    <span id="doc-session-count" class="text-[11px] text-slate-500">0 documents loaded</span>
+                  </div>
+                  <select id="active-document-select" onchange="onActiveDocumentChange()" class="w-full text-xs bg-white border border-slate-300 rounded p-1.5 focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                    <option value="">-- No documents uploaded yet --</option>
+                  </select>
+                </div>
+                <div id="active-doc-meta" class="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
+                  <span id="active-doc-pages">Pages: -</span>
+                  <span id="active-doc-size">Size: -</span>
+                  <button id="btn-delete-doc" onclick="deleteActiveDocument()" class="text-rose-500 hover:text-rose-700 hidden text-xs">
+                    <i class="fa-solid fa-trash-can mr-1"></i>Remove
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Review Profile & Options Row -->
+            <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+              <!-- Profile Selector -->
+              <div class="flex items-center space-x-1.5">
+                <label class="text-xs font-medium text-slate-700">Profile:</label>
+                <select id="doc-profile-select" class="text-xs bg-white border border-slate-300 rounded-md py-1.5 px-2 focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                  <option value="executive_bluf">🎖️ Executive Briefing (BLUF & Decisions)</option>
+                  <option value="red_team">🛡️ Red Team / Critical Vulnerabilities</option>
+                  <option value="policy_compliance">📋 Policy, Governance & Compliance</option>
+                  <option value="technical_critique">🔬 Technical & Architectural Critique</option>
+                </select>
+              </div>
+
+              <!-- Auto-import to Zotero Checkbox (CHECKED BY DEFAULT) -->
+              <label class="flex items-center space-x-1.5 text-xs text-slate-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1.5 rounded-md cursor-pointer" title="Automatically create a library item and attach this review in Zotero">
+                <input type="checkbox" id="doc-auto-zotero" checked class="rounded text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5">
+                <span class="font-medium text-emerald-900"><i class="fa-solid fa-cloud-arrow-down mr-1"></i>Import to Zotero by Default</span>
+              </label>
+
+              <!-- Optional Custom Focus -->
+              <input type="text" id="doc-custom-focus" placeholder="Optional focus (e.g. budget impact, cyber compliance)..." class="flex-1 min-w-[160px] text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-md focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+
+              <!-- Action Button -->
+              <button onclick="runWorkDocumentReview()" id="btn-run-doc-review" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs rounded-md shadow-sm transition flex items-center space-x-1.5">
+                <i class="fa-solid fa-file-circle-check"></i>
+                <span>Review Document</span>
+              </button>
+            </div>
+
+            <!-- Grounded Q&A against Document -->
+            <div class="flex items-center space-x-2 pt-1 border-t border-slate-100">
+              <input type="text" id="doc-chat-query" onkeydown="if(event.key==='Enter') runWorkDocChat()" placeholder="Ask specific questions about this document (e.g. 'What budget figures are cited in section 2?')..." class="flex-1 text-xs px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-md focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+              <button onclick="runWorkDocChat()" id="btn-doc-chat" class="px-3.5 py-1.5 bg-slate-700 hover:bg-slate-800 text-white font-medium text-xs rounded-md shadow-sm transition flex items-center space-x-1">
+                <i class="fa-regular fa-comment-dots"></i>
+                <span>Ask Document</span>
+              </button>
+            </div>
+          </div>
+
         </div>
 
         <!-- Review Output & Actions Header -->
@@ -207,15 +283,22 @@
           <div class="flex items-center space-x-2">
             <span class="text-xs font-semibold text-slate-700">Generated Review & Findings</span>
             <span id="loading-spinner" class="hidden text-xs text-blue-600"><i class="fa-solid fa-circle-notch fa-spin mr-1"></i> Gemini is thinking...</span>
+            <span id="doc-sync-badge" class="hidden text-[11px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center space-x-1">
+              <i class="fa-solid fa-check"></i>
+              <span id="doc-sync-text">Saved to Zotero</span>
+            </span>
           </div>
 
           <div class="flex items-center space-x-2">
             <button onclick="copyOutputMarkdown()" title="Copy Markdown" class="px-2.5 py-1 text-xs text-slate-600 bg-slate-100 hover:bg-slate-200 rounded border border-slate-200 transition">
               <i class="fa-regular fa-copy mr-1"></i> Copy
             </button>
-            <button id="save-to-zotero-btn" onclick="saveActiveReviewToZotero()" title="Push as child note to Zotero" class="px-2.5 py-1 text-xs text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded border border-indigo-200 transition font-medium flex items-center space-x-1">
+            <button onclick="downloadOutputMarkdown()" title="Download as .md file" class="px-2.5 py-1 text-xs text-slate-600 bg-slate-100 hover:bg-slate-200 rounded border border-slate-200 transition">
+              <i class="fa-solid fa-download mr-1"></i> Download
+            </button>
+            <button id="save-to-zotero-btn" onclick="saveActiveReviewToZotero()" title="Push as item / child note to Zotero" class="px-2.5 py-1 text-xs text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded border border-indigo-200 transition font-medium flex items-center space-x-1">
               <i class="fa-solid fa-cloud-arrow-up"></i>
-              <span>Save Note to Zotero</span>
+              <span>Save to Zotero</span>
             </button>
           </div>
         </div>

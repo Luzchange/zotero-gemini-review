@@ -10,6 +10,9 @@ let appState = {
   papers: [],
   selectedKeys: new Set(),
   activePaperKey: null,
+  workDocuments: [],
+  activeDocumentId: null,
+  lastAnalyzedDocumentId: null,
   currentReviewMarkdown: '',
   currentZoteroHtml: '',
   lastAnalyzedItemKey: null,
@@ -62,6 +65,8 @@ async function initApp() {
   await checkHealthAndCredentials();
   await loadCollections();
   await loadPapers();
+  initDocumentUploadHandlers();
+  await loadUploadedDocuments();
 }
 
 async function checkHealthAndCredentials() {
@@ -249,15 +254,17 @@ function refreshLibrary() {
 
 function switchTab(tab) {
   appState.activeTab = tab;
-  ['deep-dive', 'synthesis', 'gaps', 'chat'].forEach(t => {
+  ['deep-dive', 'synthesis', 'gaps', 'chat', 'work-docs'].forEach(t => {
     const btn = document.getElementById(`tab-${t}`);
     const panel = document.getElementById(`panel-${t}`);
-    if (t === tab) {
-      btn.className = 'tab-btn px-3 py-1.5 text-xs font-semibold rounded-md bg-blue-600 text-white transition shadow-sm';
-      panel.classList.remove('hidden');
-    } else {
-      btn.className = 'tab-btn px-3 py-1.5 text-xs font-medium rounded-md text-slate-600 hover:bg-slate-100 transition';
-      panel.classList.add('hidden');
+    if (btn && panel) {
+      if (t === tab) {
+        btn.className = 'tab-btn px-3 py-1.5 text-xs font-semibold rounded-md bg-blue-600 text-white transition shadow-sm';
+        panel.classList.remove('hidden');
+      } else {
+        btn.className = 'tab-btn px-3 py-1.5 text-xs font-medium rounded-md text-slate-600 hover:bg-slate-100 transition';
+        panel.classList.add('hidden');
+      }
     }
   });
 }
@@ -440,37 +447,80 @@ async function runChatQuery() {
 }
 
 async function saveActiveReviewToZotero() {
-  if (!appState.currentZoteroHtml) {
+  if (!appState.currentReviewMarkdown) {
     alert('No review content available to save.');
     return;
   }
 
+  // 1. If we have an existing Zotero paper key
   const targetKey = appState.lastAnalyzedItemKey || appState.activePaperKey;
-  if (!targetKey) {
-    alert('Please select or specify a paper to attach this review note to in Zotero.');
+  if (targetKey) {
+    try {
+      const res = await apiFetch(`/api/zotero/items/${targetKey}/save-note`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          item_key: targetKey,
+          note_html: appState.currentZoteroHtml || marked.parse(appState.currentReviewMarkdown),
+          tags: ['gemini-reviewed', 'literature-review']
+        })
+      });
+
+      if (!res.ok) {
+        const errMsg = await parseErrorMessage(res);
+        throw new Error(errMsg);
+      }
+
+      const badge = document.getElementById('doc-sync-badge');
+      if (badge) {
+        document.getElementById('doc-sync-text').innerText = 'Saved to Zotero';
+        badge.classList.remove('hidden');
+      }
+
+      alert('✅ Successfully pushed review as a child note to Zotero!');
+    } catch (err) {
+      alert(`Failed to save note to Zotero: ${err.message}`);
+    }
     return;
   }
 
-  try {
-    const res = await apiFetch(`/api/zotero/items/${targetKey}/save-note`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        item_key: targetKey,
-        note_html: appState.currentZoteroHtml,
-        tags: ['gemini-reviewed', 'literature-review']
-      })
-    });
+  // 2. If it is an uploaded work document without an item key yet
+  const targetDocId = appState.lastAnalyzedDocumentId || appState.activeDocumentId;
+  if (targetDocId) {
+    const colSelect = document.getElementById('collection-select');
+    const collectionKey = colSelect ? (colSelect.value || null) : null;
+    try {
+      const res = await apiFetch('/api/documents/save-to-zotero', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          document_id: targetDocId,
+          review_markdown: appState.currentReviewMarkdown,
+          collection_key: collectionKey
+        })
+      });
 
-    if (!res.ok) {
-      const errMsg = await parseErrorMessage(res);
-      throw new Error(errMsg);
+      if (!res.ok) {
+        const errMsg = await parseErrorMessage(res);
+        throw new Error(errMsg);
+      }
+
+      const data = await res.json();
+      appState.lastAnalyzedItemKey = data.item_key;
+      const badge = document.getElementById('doc-sync-badge');
+      if (badge) {
+        document.getElementById('doc-sync-text').innerText = 'Saved to Zotero';
+        badge.classList.remove('hidden');
+      }
+
+      alert('✅ Successfully created document item and attached review note in Zotero!');
+    } catch (err) {
+      alert(`Failed to save document to Zotero: ${err.message}`);
     }
-
-    alert('✅ Successfully pushed literature review as a child note to Zotero!');
-  } catch (err) {
-    alert(`Failed to save to Zotero: ${err.message}`);
+    return;
   }
+
+  alert('Please select a paper or upload a work document first.');
 }
 
 function copyOutputMarkdown() {
@@ -480,6 +530,23 @@ function copyOutputMarkdown() {
   }
   navigator.clipboard.writeText(appState.currentReviewMarkdown);
   alert('Copied review markdown to clipboard!');
+}
+
+function downloadOutputMarkdown() {
+  if (!appState.currentReviewMarkdown) {
+    alert('No review content available to download.');
+    return;
+  }
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const blob = new Blob([appState.currentReviewMarkdown], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `GResearch_Analysis_${dateStr}.md`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 // -------------------------------------------------------------
@@ -651,3 +718,248 @@ function escapeHtml(text) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
 }
+
+// -------------------------------------------------------------
+// Work Document Upload & Analysis Handlers
+// -------------------------------------------------------------
+
+function initDocumentUploadHandlers() {
+  const dropzone = document.getElementById('doc-dropzone');
+  if (!dropzone) return;
+
+  ['dragenter', 'dragover'].forEach(name => {
+    dropzone.addEventListener(name, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropzone.classList.add('border-emerald-600', 'bg-emerald-100/70');
+    });
+  });
+
+  ['dragleave', 'drop'].forEach(name => {
+    dropzone.addEventListener(name, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropzone.classList.remove('border-emerald-600', 'bg-emerald-100/70');
+    });
+  });
+
+  dropzone.addEventListener('drop', (e) => {
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleDocumentFileUpload(e.dataTransfer.files);
+    }
+  });
+}
+
+async function handleDocumentFileUpload(files) {
+  if (!files || files.length === 0) return;
+  const file = files[0];
+  if (!file.name.toLowerCase().endsWith('.pdf')) {
+    alert('Please upload a PDF file.');
+    return;
+  }
+
+  showLoading(true, `Uploading and extracting "${file.name}"...`);
+
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const res = await apiFetch('/api/documents/upload', {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!res.ok) {
+      const errMsg = await parseErrorMessage(res);
+      throw new Error(errMsg);
+    }
+
+    const data = await res.json();
+    await loadUploadedDocuments();
+
+    // Select this newly uploaded document
+    appState.activeDocumentId = data.document_id;
+    const select = document.getElementById('active-document-select');
+    if (select) select.value = data.document_id;
+    onActiveDocumentChange();
+
+    showLoading(false);
+  } catch (err) {
+    showLoading(false);
+    alert(`Upload failed: ${err.message}`);
+  }
+}
+
+async function loadUploadedDocuments() {
+  try {
+    const res = await apiFetch('/api/documents/list');
+    if (!res.ok) return;
+    const docs = await res.json();
+    appState.workDocuments = docs;
+
+    const select = document.getElementById('active-document-select');
+    const countBadge = document.getElementById('doc-session-count');
+    if (!select) return;
+
+    select.innerHTML = '';
+    if (docs.length === 0) {
+      select.innerHTML = '<option value="">-- No documents uploaded yet --</option>';
+      if (countBadge) countBadge.innerText = '0 documents loaded';
+      appState.activeDocumentId = null;
+      onActiveDocumentChange();
+      return;
+    }
+
+    if (countBadge) countBadge.innerText = `${docs.length} document${docs.length === 1 ? '' : 's'} loaded`;
+    docs.forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d.id;
+      opt.innerText = `${d.title} (${d.page_count} pages)`;
+      select.appendChild(opt);
+    });
+
+    if (!appState.activeDocumentId || !docs.some(d => d.id === appState.activeDocumentId)) {
+      appState.activeDocumentId = docs[0].id;
+    }
+    select.value = appState.activeDocumentId;
+    onActiveDocumentChange();
+  } catch (err) {
+    console.error('Failed to load documents:', err);
+  }
+}
+
+function onActiveDocumentChange() {
+  const select = document.getElementById('active-document-select');
+  const docId = select ? select.value : null;
+  appState.activeDocumentId = docId;
+
+  const pagesSpan = document.getElementById('active-doc-pages');
+  const sizeSpan = document.getElementById('active-doc-size');
+  const deleteBtn = document.getElementById('btn-delete-doc');
+
+  if (!docId) {
+    if (pagesSpan) pagesSpan.innerText = 'Pages: -';
+    if (sizeSpan) sizeSpan.innerText = 'Size: -';
+    if (deleteBtn) deleteBtn.classList.add('hidden');
+    return;
+  }
+
+  const doc = appState.workDocuments.find(d => d.id === docId);
+  if (doc) {
+    if (pagesSpan) pagesSpan.innerText = `Pages: ${doc.page_count}`;
+    const mb = (doc.file_size_bytes / (1024 * 1024)).toFixed(1);
+    if (sizeSpan) sizeSpan.innerText = `Size: ${mb > 0 ? mb : '< 0.1'} MB`;
+    if (deleteBtn) deleteBtn.classList.remove('hidden');
+  }
+}
+
+async function deleteActiveDocument() {
+  if (!appState.activeDocumentId) return;
+  if (!confirm('Remove this document from the current session?')) return;
+
+  try {
+    const res = await apiFetch(`/api/documents/${appState.activeDocumentId}`, {
+      method: 'DELETE'
+    });
+    if (res.ok) {
+      await loadUploadedDocuments();
+    }
+  } catch (err) {
+    alert(`Could not remove document: ${err.message}`);
+  }
+}
+
+async function runWorkDocumentReview() {
+  if (!appState.activeDocumentId) {
+    alert('Please upload or select a PDF work document first!');
+    return;
+  }
+
+  const profile = document.getElementById('doc-profile-select').value;
+  const customFocus = document.getElementById('doc-custom-focus').value.trim() || null;
+  const importToZotero = document.getElementById('doc-auto-zotero').checked;
+  const collectionKey = document.getElementById('collection-select').value || null;
+
+  showLoading(true, 'Conducting deep analytical review of work document...');
+  const badge = document.getElementById('doc-sync-badge');
+  if (badge) badge.classList.add('hidden');
+
+  try {
+    const res = await apiFetch('/api/documents/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        document_id: appState.activeDocumentId,
+        profile: profile,
+        custom_focus: customFocus,
+        import_to_zotero: importToZotero,
+        collection_key: collectionKey,
+        model: appState.credentials.geminiModel || null
+      })
+    });
+
+    if (!res.ok) {
+      const errMsg = await parseErrorMessage(res);
+      throw new Error(errMsg);
+    }
+
+    const data = await res.json();
+    displayReviewOutput(data.review_markdown, null, null);
+    appState.lastAnalyzedDocumentId = data.document_id;
+    appState.lastAnalyzedItemKey = data.zotero_item_key || null;
+
+    if (data.zotero_saved) {
+      if (badge) {
+        document.getElementById('doc-sync-text').innerText = 'Saved to Zotero';
+        badge.classList.remove('hidden');
+      }
+    }
+
+    showLoading(false);
+  } catch (err) {
+    showLoading(false);
+    alert(`Document review failed: ${err.message}`);
+  }
+}
+
+async function runWorkDocChat() {
+  if (!appState.activeDocumentId) {
+    alert('Please upload or select a document first!');
+    return;
+  }
+
+  const queryInput = document.getElementById('doc-chat-query');
+  const query = queryInput.value.trim();
+  if (!query) return;
+
+  showLoading(true, 'Gemini is querying document contents...');
+  try {
+    const res = await apiFetch('/api/documents/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        document_ids: [appState.activeDocumentId],
+        query: query,
+        model: appState.credentials.geminiModel || null
+      })
+    });
+
+    if (!res.ok) {
+      const errMsg = await parseErrorMessage(res);
+      throw new Error(errMsg);
+    }
+
+    const data = await res.json();
+    const chatMd = `## 💬 Q&A: ${query}\n\n${data.answer}\n\n---\n*Grounded in: ${data.cited_documents.join(', ') || 'Uploaded Document'}*`;
+    
+    // Append to review or display in output view
+    const current = appState.currentReviewMarkdown ? `${appState.currentReviewMarkdown}\n\n${chatMd}` : chatMd;
+    displayReviewOutput(current, null, appState.lastAnalyzedItemKey);
+    queryInput.value = '';
+    showLoading(false);
+  } catch (err) {
+    showLoading(false);
+    alert(`Chat failed: ${err.message}`);
+  }
+}
+

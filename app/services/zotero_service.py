@@ -332,3 +332,51 @@ class ZoteroService:
                 json=tag_objects
             )
             return resp.status_code in (200, 201, 204)
+
+    async def create_document_item(
+        self,
+        title: str,
+        abstract_note: str = "",
+        collection_key: Optional[str] = None,
+        creators: Optional[List[str]] = None,
+        tags: Optional[List[str]] = None
+    ) -> Tuple[bool, Optional[str], str]:
+        """
+        Create a new document/report item in the user's Zotero library.
+        Returns (success, item_key, message).
+        """
+        creator_objs = []
+        if creators:
+            for c in creators:
+                creator_objs.append({"creatorType": "author", "name": c})
+        else:
+            creator_objs.append({"creatorType": "author", "name": "Work Document / Report"})
+
+        tag_objs = [{"tag": t} for t in (tags or ["work-document", "gemini-reviewed"])]
+
+        item_data: Dict[str, Any] = {
+            "itemType": "report",
+            "title": title or "Untitled Work Document",
+            "creators": creator_objs,
+            "abstractNote": abstract_note[:2000] if abstract_note else "",
+            "tags": tag_objs
+        }
+        if collection_key:
+            item_data["collections"] = [collection_key]
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{self.library_url}/items",
+                headers=self.headers,
+                json=[item_data]
+            )
+            if resp.status_code in (200, 201):
+                res_data = resp.json()
+                successful = res_data.get("successful", {})
+                if successful:
+                    created_key = list(successful.values())[0].get("key")
+                    return True, created_key, "Document item created in Zotero."
+                return True, None, "Document saved in Zotero, but key not returned."
+            else:
+                return False, None, f"Zotero API error creating item: {resp.status_code} - {resp.text}"
+

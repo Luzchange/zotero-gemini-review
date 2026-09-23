@@ -154,3 +154,66 @@ class LiteratureChatRequest(BaseModel):
 class LiteratureChatResponse(BaseModel):
     answer: str
     cited_paper_keys: List[str] = Field(default_factory=list)
+
+# -------------------------------------------------------------
+# Work Document Upload & Review Schemas
+# -------------------------------------------------------------
+
+class WorkDocument(BaseModel):
+    id: str
+    filename: str
+    title: str
+    page_count: int
+    file_size_bytes: int
+    text_preview: str
+
+class WorkDocumentUploadResponse(BaseModel):
+    document_id: str
+    filename: str
+    title: str
+    page_count: int
+    file_size_bytes: int
+    message: str
+
+class WorkDocumentReviewRequest(BaseModel):
+    document_id: str
+    profile: str = Field(
+        default="executive_bluf",
+        description="Analysis profile: 'executive_bluf', 'red_team', 'policy_compliance', or 'technical_critique'"
+    )
+    custom_focus: Optional[str] = None
+    import_to_zotero: bool = Field(
+        default=True,
+        description="If True, automatically create an item and attached review note in Zotero"
+    )
+    collection_key: Optional[str] = Field(
+        default=None,
+        description="Optional Zotero collection key to file the document into"
+    )
+    model: Optional[str] = None
+
+class WorkDocumentReviewResponse(BaseModel):
+    document_id: str
+    title: str
+    profile: str
+    review_markdown: str
+    zotero_saved: bool = False
+    zotero_item_key: Optional[str] = None
+    zotero_note_key: Optional[str] = None
+    message: str
+
+class WorkDocumentChatRequest(BaseModel):
+    query: str
+    document_ids: List[str]
+    chat_history: Optional[List[Dict[str, str]]] = Field(default_factory=list)
+    model: Optional[str] = None
+
+class WorkDocumentChatResponse(BaseModel):
+    answer: str
+    cited_documents: List[str] = Field(default_factory=list)
+
+class SaveDocumentToZoteroRequest(BaseModel):
+    document_id: str
+    review_markdown: str
+    collection_key: Optional[str] = None
+

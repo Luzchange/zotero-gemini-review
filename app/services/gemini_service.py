@@ -1,7 +1,7 @@
 import json
 import logging
 import io
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 import httpx
 import markdown
 import asyncio
@@ -523,3 +523,203 @@ Instructions:
             answer=answer,
             cited_paper_keys=cited_keys
         )
+
+    async def review_work_document(
+        self,
+        title: str,
+        text: str,
+        pdf_bytes: Optional[bytes] = None,
+        profile: str = "executive_bluf",
+        custom_focus: Optional[str] = None,
+        model_override: Optional[str] = None
+    ) -> Tuple[str, str]:
+        """
+        Perform tailored analysis of an uploaded work document based on the requested profile:
+        - executive_bluf: Decision brief with Bottom Line Up Front, impacts, and recommendations.
+        - red_team: Critical adversarial review exposing assumptions, vulnerabilities, and failure modes.
+        - policy_compliance: Regulatory, policy, and mandate alignment.
+        - technical_critique: Methodological and architectural deep-dive.
+        """
+        active_model = model_override or self.model
+
+        profile_prompts = {
+            "executive_bluf": """
+You are a senior executive advisor and intelligence analyst producing a high-level Decision Brief.
+Format your review with clear Markdown headers:
+# Executive Briefing & Decision Memo: {title}
+
+## 1. Bottom Line Up Front (BLUF)
+A direct, authoritative 2-3 sentence executive synthesis of the core message, primary conclusion, and necessary action.
+
+## 2. Strategic Context & Objective
+Why this document was written, what critical problem or mandate it addresses, and its operational scope.
+
+## 3. Key Findings & Essential Facts
+Bulleted list of high-impact discoveries, verified data points, or milestone findings.
+
+## 4. Actionable Recommendations & Decisions Required
+Specific, prioritized recommendations for leadership. Clearly designate who needs to decide what.
+
+## 5. Operational, Budget & Resource Impacts
+Projected implications for workforce, technical systems, timelines, and financial investment.
+
+## 6. Risk Assessment & Key Assumptions
+Major assumptions underpinning the document, potential failure points, and suggested mitigation controls.
+""",
+            "red_team": """
+You are an adversarial Red Team analyst and rigorous critical evaluator. Your role is to stress-test this document, uncover blind spots, and challenge conclusions.
+Format your review with clear Markdown headers:
+# Red Team / Critical Vulnerability Analysis: {title}
+
+## 1. Executive Challenge & Core Vulnerabilities
+Summary of the 3 most significant weaknesses, flaws in logic, or unexamined risks in this document.
+
+## 2. Unstated Assumptions & Implicit Biases
+Assumptions the authors rely on without empirical validation or justification.
+
+## 3. Evidential & Methodological Vulnerabilities
+Questionable data sources, cherry-picked findings, measurement limitations, or lack of counter-evidence.
+
+## 4. Operational & Implementation Failure Modes
+Where this plan, policy, or technical proposal is most likely to fail in real-world conditions.
+
+## 5. Competing Hypotheses & Adversarial Perspectives
+Strongest counter-arguments or alternative interpretations that the document fails to address.
+
+## 6. Stress-Testing & Hardening Recommendations
+Concrete recommendations to remediate these vulnerabilities and harden the proposal.
+""",
+            "policy_compliance": """
+You are a senior policy and compliance analyst evaluating institutional alignment, regulatory governance, and standard adherence.
+Format your review with clear Markdown headers:
+# Policy & Governance Review: {title}
+
+## 1. Governance Overview & Policy Alignment
+Summary of relevant mandates, standards, legal frameworks, or operational doctrines applicable to this document.
+
+## 2. Compliance Evaluation Matrix
+- Fully Compliant Areas
+- Partially Addressed / Ambiguous Areas
+- Non-Compliant Gaps or Unaddressed Requirements
+
+## 3. Accountability & Procedural Oversight
+Reporting mechanisms, audit trails, chain-of-custody, and supervisory responsibilities.
+
+## 4. Compliance Remediation Checklist
+Actionable steps required to achieve complete regulatory and institutional alignment.
+""",
+            "technical_critique": """
+You are a distinguished technical reviewer and principal research scientist.
+Format your review with clear Markdown headers:
+# Technical & Architectural Critique: {title}
+
+## 1. Technical Summary & System Architecture
+High-level architectural overview, technical methodology, or experimental setup.
+
+## 2. Technical Rigor & Empirical Evidence
+Evaluation of data integrity, mathematical/algorithmic soundness, and validation criteria.
+
+## 3. Constraints, Scalability & Bottlenecks
+Technical limits, compute/bandwidth requirements, latency, edge-case vulnerability, or throughput constraints.
+
+## 4. Engineering & Research Recommendations
+Concrete technical modifications to optimize efficiency, security, reliability, or scientific validity.
+"""
+        }
+
+        template = profile_prompts.get(profile, profile_prompts["executive_bluf"]).format(title=title)
+
+        focus_instruction = f"\n\nSpecial User Focus / Priority Area:\n{custom_focus}" if custom_focus else ""
+
+        system_instruction = f"""
+You are an expert document analyst operating within GResearch.
+Analyze the provided work document thoroughly and produce an academically and professionally rigorous report.
+Maintain objective, evidence-based language and cite specific sections or page contents where available.
+{template}
+{focus_instruction}
+"""
+
+        user_prompt = f"Document Title: {title}\n\nDocument Full Text Excerpt:\n{text[:60000]}"
+
+        if self._is_openai_compatible():
+            review_md = await self._generate_openai_compatible(
+                model=active_model,
+                system_instruction=system_instruction,
+                user_prompt=user_prompt,
+                temperature=0.2
+            )
+        else:
+            contents: List[Any] = []
+            if pdf_bytes:
+                from google.genai import types
+                logger.info(f"Passing raw PDF bytes ({len(pdf_bytes)} bytes) to Gemini for work document review.")
+                contents.append(
+                    types.Part.from_bytes(
+                        data=pdf_bytes,
+                        mime_type="application/pdf"
+                    )
+                )
+            contents.append(user_prompt)
+
+            review_md = await self._generate_gemini_content(
+                model=active_model,
+                contents=contents,
+                config={
+                    "system_instruction": system_instruction,
+                    "temperature": 0.2,
+                }
+            )
+
+        zotero_html = self._markdown_to_zotero_html(review_md, title)
+        return review_md, zotero_html
+
+    async def chat_with_work_documents(
+        self,
+        documents: List[Dict[str, str]],
+        query: str,
+        chat_history: Optional[List[Dict[str, str]]] = None,
+        model_override: Optional[str] = None
+    ) -> str:
+        """
+        Answer questions grounded in one or more uploaded work documents.
+        """
+        active_model = model_override or self.model
+
+        corpus_text = "\n\n===\n\n".join([
+            f"Document Title: {doc.get('title', 'Untitled')}\nFilename: {doc.get('filename', '')}\nContent:\n{doc.get('text', '')[:30000]}"
+            for doc in documents[:5]
+        ])
+
+        system_instruction = """
+You are an expert analytical research assistant answering questions about the user's uploaded work documents.
+- Rely strictly on facts stated in the provided document corpus.
+- If information is not in the documents, state so clearly.
+- Cite specific document titles, sections, or numbers when quoting evidence.
+"""
+
+        prompt = f"""
+Uploaded Document Corpus:
+{corpus_text}
+
+User Question: {query}
+"""
+
+        if self._is_openai_compatible():
+            answer = await self._generate_openai_compatible(
+                model=active_model,
+                system_instruction=system_instruction,
+                user_prompt=prompt,
+                temperature=0.2
+            )
+        else:
+            answer = await self._generate_gemini_content(
+                model=active_model,
+                contents=[prompt],
+                config={
+                    "system_instruction": system_instruction,
+                    "temperature": 0.2,
+                }
+            )
+
+        return answer
+
