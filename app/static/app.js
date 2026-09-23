@@ -1,5 +1,5 @@
 let savedModel = localStorage.getItem('zg_gemini_model');
-if (savedModel === 'gemini-2.5-flash') {
+if (savedModel === 'gemini-2.5-flash' || savedModel === 'gemini-3.6-pro') {
   savedModel = 'gemini-3.6-flash';
   localStorage.setItem('zg_gemini_model', savedModel);
 }
@@ -569,6 +569,77 @@ async function saveSettingsFromModal() {
   await checkHealthAndCredentials();
   await loadCollections();
   await loadPapers();
+}
+
+async function fetchAvailableModels() {
+  const btn = document.getElementById('btn-refresh-models');
+  const modelSelect = document.getElementById('modal-gemini-model');
+  const tempKey = document.getElementById('modal-gemini-key').value.trim() || appState.credentials.geminiKey;
+  const tempBaseUrl = document.getElementById('modal-gemini-base-url').value.trim() || appState.credentials.geminiBaseUrl;
+
+  if (!tempKey) {
+    alert('Please enter your API Key first before refreshing models.');
+    return;
+  }
+
+  const originalHtml = btn.innerHTML;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> <span>Fetching...</span>';
+  btn.disabled = true;
+
+  try {
+    const headers = { 'X-Gemini-Key': tempKey };
+    if (tempBaseUrl) headers['X-Gemini-Base-Url'] = tempBaseUrl;
+
+    const res = await fetch('/api/review/models', { headers });
+    if (!res.ok) {
+      const err = await parseErrorMessage(res);
+      alert(`Could not fetch models: ${err}`);
+      return;
+    }
+    const data = await res.json();
+    if (data.models && data.models.length > 0) {
+      const currentVal = modelSelect.value === 'custom' 
+        ? document.getElementById('modal-gemini-model-custom').value 
+        : modelSelect.value;
+
+      modelSelect.innerHTML = '';
+      data.models.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = m.display_name && m.display_name !== m.id 
+          ? `${m.id} (${m.display_name})` 
+          : m.id;
+        modelSelect.appendChild(opt);
+      });
+
+      // Add Custom Option at end
+      const customOpt = document.createElement('option');
+      customOpt.value = 'custom';
+      customOpt.textContent = '-- Custom Model Name --';
+      modelSelect.appendChild(customOpt);
+
+      // Restore previously selected model if still in list
+      let matched = false;
+      for (let i = 0; i < modelSelect.options.length; i++) {
+        if (modelSelect.options[i].value === currentVal) {
+          modelSelect.value = currentVal;
+          matched = true;
+          break;
+        }
+      }
+      if (!matched && currentVal) {
+        modelSelect.value = 'custom';
+        const customInput = document.getElementById('modal-gemini-model-custom');
+        customInput.value = currentVal;
+        customInput.classList.remove('hidden');
+      }
+    }
+  } catch (err) {
+    alert(`Error: ${err.message}`);
+  } finally {
+    btn.innerHTML = originalHtml;
+    btn.disabled = false;
+  }
 }
 
 function escapeHtml(text) {

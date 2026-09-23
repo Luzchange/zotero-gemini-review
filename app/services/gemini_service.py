@@ -110,6 +110,33 @@ class GeminiService:
                 raise e
         return self._client
 
+    async def list_available_models(self) -> List[Dict[str, Any]]:
+        """List available models for this API key that support generateContent."""
+        if self._is_openai_compatible():
+            return [
+                {"id": "gemini-2.5-flash", "display_name": "gemini-2.5-flash (GenAI.mil)"},
+                {"id": "gemini-2.0-flash", "display_name": "gemini-2.0-flash"},
+                {"id": "gemini-1.5-flash", "display_name": "gemini-1.5-flash"},
+            ]
+
+        try:
+            client = self._get_client()
+            models_pager = client.models.list()
+            available = []
+            for m in models_pager:
+                model_id = m.name.replace("models/", "") if m.name else ""
+                actions = getattr(m, "supported_actions", None) or []
+                if not actions or "generateContent" in actions:
+                    available.append({
+                        "id": model_id,
+                        "display_name": m.display_name or model_id,
+                        "description": m.description or ""
+                    })
+            return available
+        except Exception as e:
+            logger.warning(f"Failed to list models from Gemini API: {e}")
+            raise HTTPException(status_code=502, detail=f"Failed to fetch model list from Gemini: {str(e)}")
+
     def _build_paper_summary_text(self, paper: PaperItem) -> str:
         """Format paper metadata and abstract into clean textual context."""
         authors = ", ".join(paper.creators) if paper.creators else "Unknown Authors"

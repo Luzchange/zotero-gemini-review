@@ -262,10 +262,15 @@
         </div>
 
         <div>
-          <label class="block font-medium text-slate-700 mb-1">Model</label>
+          <div class="flex items-center justify-between mb-1">
+            <label class="block font-medium text-slate-700">Model</label>
+            <button type="button" onclick="fetchAvailableModels()" id="btn-refresh-models" class="text-[10px] text-blue-600 hover:text-blue-800 font-normal flex items-center space-x-1 cursor-pointer">
+              <i class="fa-solid fa-arrows-rotate"></i>
+              <span>Refresh Models from API</span>
+            </button>
+          </div>
           <select id="modal-gemini-model" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
-            <option value="gemini-3.6-flash">gemini-3.6-flash (Latest & Recommended)</option>
-            <option value="gemini-3.6-pro">gemini-3.6-pro (Deep Scholarly Reasoning)</option>
+            <option value="gemini-3.6-flash">gemini-3.6-flash (Latest & Recommended by Google)</option>
             <option value="gemini-2.0-flash">gemini-2.0-flash (General Purpose)</option>
             <option value="gemini-2.0-flash-lite">gemini-2.0-flash-lite (Fast & Light)</option>
             <option value="gemini-1.5-flash">gemini-1.5-flash (High Rate Limit)</option>
@@ -275,7 +280,7 @@
             <option value="custom">-- Custom Model Name --</option>
           </select>
           <input type="text" id="modal-gemini-model-custom" placeholder="e.g. gemini-3.6-flash" class="hidden mt-1.5 w-full p-2 border border-blue-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none bg-blue-50/30 text-xs">
-          <p class="text-[10px] text-slate-500 mt-0.5">Use <code class="text-blue-600">gemini-3.6-flash</code> for new Google AI Studio accounts, or select/enter any model.</p>
+          <p class="text-[10px] text-slate-500 mt-0.5">Use <code class="text-blue-600 font-semibold">gemini-3.6-flash</code> for standard Google AI Studio, or click "Refresh Models" to pull active models.</p>
         </div>
 
         <hr class="border-slate-100">

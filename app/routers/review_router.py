@@ -21,6 +21,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/review", tags=["Literature Review"])
 
+@router.get("/models")
+async def list_models(request: Request):
+    """List available models for the configured Gemini key."""
+    service = get_gemini_service(request)
+    models = await service.list_available_models()
+    return {"models": models}
+
 def get_gemini_service(request: Request) -> GeminiService:
     creds = get_credentials(request)
     if not creds["gemini_key"]:

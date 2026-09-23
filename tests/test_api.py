@@ -81,3 +81,20 @@ async def test_review_paper_flow_mocked(monkeypatch, sample_paper):
     assert data["title"] == "Attention Is All You Need"
     assert "Attention Review" in data["review_markdown"]
     assert len(data["key_findings"]) == 2
+
+@pytest.mark.asyncio
+async def test_list_models_endpoint(monkeypatch):
+    async def mock_list_models(self):
+        return [{"id": "gemini-3.6-flash", "display_name": "gemini-3.6-flash"}]
+
+    monkeypatch.setattr(GeminiService, "list_available_models", mock_list_models)
+
+    response = client.get(
+        "/api/review/models",
+        headers={"x-gemini-key": "test_key"}
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "models" in data
+    assert data["models"][0]["id"] == "gemini-3.6-flash"
+
