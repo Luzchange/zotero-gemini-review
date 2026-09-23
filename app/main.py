@@ -14,10 +14,10 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
-logger = logging.getLogger("zotero-gemini-review")
+logger = logging.getLogger("gresearch")
 
 app = FastAPI(
-    title="Zotero + Gemini Literature Review API",
+    title="GResearch - AI Literature Review Studio & API",
     description="Intelligent academic literature review assistant connecting Google Gemini with Zotero.",
     version="1.0.0",
     docs_url="/docs",
@@ -68,7 +68,7 @@ async def health_check(request: Request):
     creds = get_credentials(request)
     return {
         "status": "online",
-        "app": "Zotero + Gemini Literature Review API",
+        "app": "GResearch",
         "version": "1.0.0",
         "gemini_configured": bool(creds.get("gemini_key")),
         "gemini_model": creds.get("gemini_model"),

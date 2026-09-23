@@ -12,13 +12,14 @@ def test_health_endpoint():
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "online"
+    assert data["app"] == "GResearch"
     assert "gemini_configured" in data
     assert "zotero_configured" in data
 
 def test_home_page():
     response = client.get("/")
     assert response.status_code == 200
-    assert "Zotero + Gemini Literature Review Studio" in response.text
+    assert "GResearch" in response.text
 
 def test_zotero_verify_missing_creds():
     response = client.get("/api/zotero/verify")

@@ -21,7 +21,7 @@ class ZoteroService:
         self.headers = {
             "Zotero-API-Key": self.api_key,
             "Zotero-API-Version": "3",
-            "User-Agent": "ZoteroGeminiReviewApp/1.0",
+            "User-Agent": "GResearch/1.0",
         }
 
     async def test_connection(self) -> Dict[str, Any]:

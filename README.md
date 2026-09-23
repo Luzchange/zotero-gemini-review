@@ -1,4 +1,4 @@
-# 🎓 Zotero + Gemini Literature Review API & Studio
+# 🎓 GResearch - AI Literature Review Studio & API
 
 An intelligent academic literature review platform connecting the **Google Gemini API** (`gemini-2.5-flash` / `gemini-2.5-pro`) with the **Zotero Web API v3**.
 

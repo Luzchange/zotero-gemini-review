@@ -1,4 +1,4 @@
-// Zotero + Gemini Literature Review Studio Frontend
+// GResearch - AI Literature Review Studio Frontend
 
 let appState = {
   activeTab: 'deep-dive',
