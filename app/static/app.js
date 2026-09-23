@@ -1,4 +1,8 @@
-// GResearch - AI Literature Review Studio Frontend
+let savedModel = localStorage.getItem('zg_gemini_model');
+if (savedModel === 'gemini-2.5-flash') {
+  savedModel = 'gemini-3.6-flash';
+  localStorage.setItem('zg_gemini_model', savedModel);
+}
 
 let appState = {
   activeTab: 'deep-dive',
@@ -13,7 +17,7 @@ let appState = {
   searchTimeout: null,
   credentials: {
     geminiKey: localStorage.getItem('zg_gemini_key') || '',
-    geminiModel: localStorage.getItem('zg_gemini_model') || 'gemini-3.6-flash',
+    geminiModel: savedModel || 'gemini-3.6-flash',
     geminiBaseUrl: localStorage.getItem('zg_gemini_base_url') || '',
     zoteroKey: localStorage.getItem('zg_zotero_key') || '',
     zoteroUserId: localStorage.getItem('zg_zotero_user_id') || '',
