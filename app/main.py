@@ -7,7 +7,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings, get_credentials
-from app.routers import zotero_router, review_router, documents_router
+from app.routers import zotero_router, review_router, documents_router, external_router
 
 # Configure logging
 logging.basicConfig(
@@ -69,6 +69,7 @@ elif os.path.isdir(os.path.join(os.getcwd(), "public", "static")):
 app.include_router(zotero_router.router)
 app.include_router(review_router.router)
 app.include_router(documents_router.router)
+app.include_router(external_router.router)
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):

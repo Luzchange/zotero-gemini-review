@@ -217,3 +217,51 @@ class SaveDocumentToZoteroRequest(BaseModel):
     review_markdown: str
     collection_key: Optional[str] = None
 
+
+class ExternalArticle(BaseModel):
+    id: str
+    source: str  # 'pubmed' | 'jstor'
+    title: str
+    authors: List[str] = Field(default_factory=list)
+    journal: Optional[str] = None
+    publication_year: Optional[str] = None
+    abstract: Optional[str] = None
+    doi: Optional[str] = None
+    pmid: Optional[str] = None
+    url: Optional[str] = None
+    proxied_url: Optional[str] = None
+
+class PubMedSearchRequest(BaseModel):
+    query: str
+    retmax: int = 10
+    api_key: Optional[str] = None
+
+class JSTORSearchRequest(BaseModel):
+    query: str
+    rows: int = 10
+    proxy_prefix: Optional[str] = None
+
+class LiteratureSearchResponse(BaseModel):
+    source: str
+    total_results: int
+    articles: List[ExternalArticle] = Field(default_factory=list)
+
+class ImportExternalToZoteroRequest(BaseModel):
+    article: ExternalArticle
+    collection_key: Optional[str] = None
+
+class ImportExternalToZoteroResponse(BaseModel):
+    success: bool
+    item_key: Optional[str] = None
+    message: str
+
+class ReviewExternalArticleRequest(BaseModel):
+    article: ExternalArticle
+    profile: Optional[str] = "technical_critique"
+    custom_focus: Optional[str] = None
+    model: Optional[str] = None
+    import_to_zotero: bool = True
+    collection_key: Optional[str] = None
+
+
+

@@ -21,13 +21,17 @@ let appState = {
   lastAnalyzedItemKey: null,
   chatHistory: [],
   searchTimeout: null,
+  literatureResults: [],
+  litSource: 'pubmed',
   credentials: {
     geminiKey: localStorage.getItem('zg_gemini_key') || '',
     geminiModel: savedModel || 'gemini-3.6-flash',
     geminiBaseUrl: localStorage.getItem('zg_gemini_base_url') || '',
     zoteroKey: localStorage.getItem('zg_zotero_key') || DEFAULT_ZOTERO_KEY,
     zoteroUserId: localStorage.getItem('zg_zotero_user_id') || DEFAULT_ZOTERO_USER_ID,
-    zoteroLibType: localStorage.getItem('zg_zotero_lib_type') || 'user'
+    zoteroLibType: localStorage.getItem('zg_zotero_lib_type') || 'user',
+    ncbiKey: localStorage.getItem('zg_ncbi_key') || '',
+    schoolProxy: localStorage.getItem('zg_school_proxy') || ''
   }
 };
 
@@ -40,6 +44,8 @@ async function apiFetch(url, options = {}) {
   if (appState.credentials.zoteroKey) headers['X-Zotero-Key'] = appState.credentials.zoteroKey;
   if (appState.credentials.zoteroUserId) headers['X-Zotero-User-Id'] = appState.credentials.zoteroUserId;
   if (appState.credentials.zoteroLibType) headers['X-Zotero-Library-Type'] = appState.credentials.zoteroLibType;
+  if (appState.credentials.ncbiKey) headers['X-Ncbi-Key'] = appState.credentials.ncbiKey;
+  if (appState.credentials.schoolProxy) headers['X-School-Proxy'] = appState.credentials.schoolProxy;
 
   options.headers = headers;
   return await fetch(url, options);
@@ -266,7 +272,7 @@ function refreshLibrary() {
 
 function switchTab(tab) {
   appState.activeTab = tab;
-  ['deep-dive', 'synthesis', 'gaps', 'chat', 'work-docs'].forEach(t => {
+  ['deep-dive', 'synthesis', 'gaps', 'chat', 'work-docs', 'literature'].forEach(t => {
     const btn = document.getElementById(`tab-${t}`);
     const panel = document.getElementById(`panel-${t}`);
     if (btn && panel) {
@@ -581,6 +587,8 @@ function toggleSettingsModal() {
     document.getElementById('modal-zotero-key').value = appState.credentials.zoteroKey || '';
     document.getElementById('modal-zotero-user-id').value = appState.credentials.zoteroUserId || '';
     document.getElementById('modal-zotero-lib-type').value = appState.credentials.zoteroLibType || 'user';
+    document.getElementById('modal-ncbi-key').value = appState.credentials.ncbiKey || '';
+    document.getElementById('modal-school-proxy').value = appState.credentials.schoolProxy || '';
 
     // Match model in dropdown or reveal custom input
     let found = false;
@@ -636,6 +644,8 @@ async function saveSettingsFromModal() {
   appState.credentials.zoteroKey = document.getElementById('modal-zotero-key').value.trim();
   appState.credentials.zoteroUserId = document.getElementById('modal-zotero-user-id').value.trim();
   appState.credentials.zoteroLibType = document.getElementById('modal-zotero-lib-type').value;
+  appState.credentials.ncbiKey = document.getElementById('modal-ncbi-key').value.trim();
+  appState.credentials.schoolProxy = document.getElementById('modal-school-proxy').value.trim();
 
   localStorage.setItem('zg_gemini_key', appState.credentials.geminiKey);
   localStorage.setItem('zg_gemini_base_url', appState.credentials.geminiBaseUrl);
@@ -643,6 +653,8 @@ async function saveSettingsFromModal() {
   localStorage.setItem('zg_zotero_key', appState.credentials.zoteroKey);
   localStorage.setItem('zg_zotero_user_id', appState.credentials.zoteroUserId);
   localStorage.setItem('zg_zotero_lib_type', appState.credentials.zoteroLibType);
+  localStorage.setItem('zg_ncbi_key', appState.credentials.ncbiKey);
+  localStorage.setItem('zg_school_proxy', appState.credentials.schoolProxy);
 
   toggleSettingsModal();
   await checkHealthAndCredentials();
@@ -974,4 +986,246 @@ async function runWorkDocChat() {
     alert(`Chat failed: ${err.message}`);
   }
 }
+
+// -------------------------------------------------------------
+// Literature Search (PubMed & JSTOR)
+// -------------------------------------------------------------
+
+function setLitSource(source) {
+  appState.litSource = source;
+  const pubmedBtn = document.getElementById('lit-source-pubmed');
+  const jstorBtn = document.getElementById('lit-source-jstor');
+  const jstorBanner = document.getElementById('jstor-proxy-banner');
+  const searchInput = document.getElementById('lit-search-input');
+
+  if (source === 'pubmed') {
+    if (pubmedBtn) pubmedBtn.className = 'px-3 py-1.5 text-xs font-semibold rounded bg-white text-blue-700 shadow-xs transition';
+    if (jstorBtn) jstorBtn.className = 'px-3 py-1.5 text-xs font-medium rounded text-slate-600 hover:text-slate-900 transition';
+    if (jstorBanner) jstorBanner.classList.add('hidden');
+    if (searchInput) searchInput.placeholder = "Search PubMed biomedical literature (e.g. 'CRISPR base editing', 'mRNA vaccines')...";
+  } else {
+    if (jstorBtn) jstorBtn.className = 'px-3 py-1.5 text-xs font-semibold rounded bg-white text-amber-700 shadow-xs transition';
+    if (pubmedBtn) pubmedBtn.className = 'px-3 py-1.5 text-xs font-medium rounded text-slate-600 hover:text-slate-900 transition';
+    if (jstorBanner) jstorBanner.classList.remove('hidden');
+    if (searchInput) searchInput.placeholder = "Search JSTOR humanities & social sciences (e.g. 'deterrence theory', 'contract law')...";
+  }
+}
+
+async function runLiteratureSearch() {
+  const input = document.getElementById('lit-search-input');
+  const query = input ? input.value.trim() : '';
+  if (!query) {
+    alert('Please enter a search topic or keyword.');
+    return;
+  }
+
+  const limitSelect = document.getElementById('lit-limit-select');
+  const limit = limitSelect ? parseInt(limitSelect.value) || 10 : 10;
+  const listContainer = document.getElementById('lit-results-list');
+  const statusContainer = document.getElementById('lit-results-status');
+  const countBadge = document.getElementById('lit-results-count');
+
+  listContainer.innerHTML = `
+    <div class="p-8 text-center text-slate-500">
+      <i class="fa-solid fa-circle-notch fa-spin text-xl text-indigo-600 mb-2"></i>
+      <p class="text-xs">Searching ${appState.litSource === 'pubmed' ? 'NCBI PubMed' : 'JSTOR Academic Repository'}...</p>
+    </div>
+  `;
+
+  try {
+    let endpoint = '/api/external/pubmed/search';
+    let body = { query: query, retmax: limit, api_key: appState.credentials.ncbiKey || null };
+
+    if (appState.litSource === 'jstor') {
+      endpoint = '/api/external/jstor/search';
+      body = { query: query, rows: limit, proxy_prefix: appState.credentials.schoolProxy || null };
+    }
+
+    const res = await apiFetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    if (!res.ok) {
+      const err = await parseErrorMessage(res);
+      throw new Error(err);
+    }
+
+    const data = await res.json();
+    appState.literatureResults = data.articles || [];
+
+    if (statusContainer) statusContainer.classList.remove('hidden');
+    if (countBadge) countBadge.textContent = `Found ${data.total_results.toLocaleString()} articles (showing top ${appState.literatureResults.length})`;
+
+    renderLiteratureResults();
+  } catch (err) {
+    listContainer.innerHTML = `
+      <div class="p-4 bg-rose-50 border border-rose-200 rounded text-rose-700 text-xs">
+        <i class="fa-solid fa-triangle-exclamation mr-1"></i> Search failed: ${escapeHtml(err.message)}
+      </div>
+    `;
+  }
+}
+
+function renderLiteratureResults() {
+  const container = document.getElementById('lit-results-list');
+  if (!container) return;
+
+  if (appState.literatureResults.length === 0) {
+    container.innerHTML = `
+      <div class="p-8 text-center text-slate-400 text-xs bg-slate-50 border border-dashed border-slate-200 rounded-lg">
+        <i class="fa-solid fa-magnifying-glass text-2xl mb-2 text-slate-300"></i>
+        <p>No articles found matching your query. Try different search terms.</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = appState.literatureResults.map((art, idx) => {
+    const isPubmed = art.source === 'pubmed';
+    const sourceBadge = isPubmed
+      ? `<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-800"><i class="fa-solid fa-dna mr-1"></i>PubMed</span>`
+      : `<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800"><i class="fa-solid fa-book-bookmark mr-1"></i>JSTOR</span>`;
+
+    const authorsStr = art.authors && art.authors.length > 0
+      ? escapeHtml(art.authors.slice(0, 3).join(', ') + (art.authors.length > 3 ? ` et al.` : ''))
+      : 'Unknown Authors';
+
+    const journalStr = art.journal ? escapeHtml(art.journal) : 'Academic Publication';
+    const yearStr = art.publication_year ? ` (${escapeHtml(art.publication_year)})` : '';
+    const doiBadge = art.doi ? `<span class="text-[10px] text-slate-500 font-mono">DOI: ${escapeHtml(art.doi)}</span>` : '';
+    const pmidBadge = art.pmid ? `<span class="text-[10px] text-slate-500 font-mono">PMID: ${escapeHtml(art.pmid)}</span>` : '';
+
+    const directUrl = art.proxied_url || art.url;
+    const accessBtn = directUrl ? `
+      <a href="${directUrl}" target="_blank" class="px-2.5 py-1 text-[11px] font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded border border-slate-300 flex items-center space-x-1" title="Open full article with university institutional access">
+        <i class="fa-solid fa-graduation-cap text-amber-600"></i>
+        <span>${art.source === 'jstor' && appState.credentials.schoolProxy ? 'School Access ↗' : 'Read Paper ↗'}</span>
+      </a>
+    ` : '';
+
+    const abstractSnippet = art.abstract
+      ? `<p class="text-slate-600 text-[11px] mt-1.5 line-clamp-2 leading-relaxed">${escapeHtml(art.abstract)}</p>`
+      : `<p class="text-slate-400 italic text-[11px] mt-1.5">Abstract not indexed directly; open paper for full details.</p>`;
+
+    return `
+      <div class="p-3 bg-white border border-slate-200 rounded-lg hover:border-indigo-300 hover:shadow-xs transition">
+        <div class="flex items-start justify-between gap-2">
+          <div class="space-y-0.5 flex-1">
+            <div class="flex items-center space-x-2">
+              ${sourceBadge}
+              <span class="text-[11px] font-medium text-slate-600">${journalStr}${yearStr}</span>
+              ${pmidBadge}
+              ${doiBadge}
+            </div>
+            <h4 class="text-xs font-semibold text-slate-900 leading-snug">
+              ${escapeHtml(art.title)}
+            </h4>
+            <div class="text-[11px] text-slate-500">${authorsStr}</div>
+          </div>
+        </div>
+
+        ${abstractSnippet}
+
+        <div class="flex items-center justify-between mt-2.5 pt-2 border-t border-slate-100">
+          <div class="flex items-center space-x-2">
+            ${accessBtn}
+            <button onclick="reviewExternalArticle(${idx})" class="px-2.5 py-1 text-[11px] font-medium bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded border border-indigo-200 flex items-center space-x-1 transition cursor-pointer">
+              <i class="fa-solid fa-wand-magic-sparkles text-indigo-600"></i>
+              <span>Review with Gemini</span>
+            </button>
+          </div>
+
+          <button id="btn-import-lit-${idx}" onclick="importExternalArticle(${idx})" class="px-2.5 py-1 text-[11px] font-medium bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded border border-emerald-300 flex items-center space-x-1 transition cursor-pointer">
+            <i class="fa-solid fa-cloud-arrow-down text-emerald-600"></i>
+            <span>Import to Zotero</span>
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function importExternalArticle(idx) {
+  const art = appState.literatureResults[idx];
+  if (!art) return;
+
+  const btn = document.getElementById(`btn-import-lit-${idx}`);
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Saving...`;
+  }
+
+  const select = document.getElementById('collection-select');
+  const collectionKey = select ? select.value || null : null;
+
+  try {
+    const res = await apiFetch('/api/external/import-to-zotero', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        article: art,
+        collection_key: collectionKey
+      })
+    });
+
+    if (!res.ok) {
+      const err = await parseErrorMessage(res);
+      throw new Error(err);
+    }
+
+    const data = await res.json();
+    if (btn) {
+      btn.className = 'px-2.5 py-1 text-[11px] font-medium bg-emerald-600 text-white rounded flex items-center space-x-1';
+      btn.innerHTML = `<i class="fa-solid fa-check"></i> <span>Saved to Zotero</span>`;
+    }
+    loadPapers(collectionKey);
+  } catch (err) {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<i class="fa-solid fa-cloud-arrow-down text-emerald-600"></i> Import to Zotero`;
+    }
+    alert(`Failed to import to Zotero: ${err.message}`);
+  }
+}
+
+async function reviewExternalArticle(idx) {
+  const art = appState.literatureResults[idx];
+  if (!art) return;
+
+  if (!appState.credentials.geminiKey) {
+    alert('Please set your Gemini / GenAI.mil API Key in Settings first.');
+    toggleSettingsModal();
+    return;
+  }
+
+  showLoading(true, `Gemini is generating an in-depth review of "${art.title.slice(0, 40)}..."`);
+  try {
+    const res = await apiFetch('/api/external/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        article: art,
+        profile: 'technical_critique',
+        custom_focus: `Analyze this ${art.source.toUpperCase()} paper rigorously. Synthesize findings, methodology implications, limitations, and future research directions.`,
+        import_to_zotero: true,
+        collection_key: document.getElementById('collection-select')?.value || null
+      })
+    });
+
+    if (!res.ok) {
+      const errMsg = await parseErrorMessage(res);
+      throw new Error(errMsg);
+    }
+
+    const data = await res.json();
+    displayReviewOutput(data.review_markdown, null, null);
+    showLoading(false);
+  } catch (err) {
+    showLoading(false);
+    alert(`Review generation failed: ${err.message}`);
+  }
+}
+
 

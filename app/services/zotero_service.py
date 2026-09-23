@@ -380,3 +380,71 @@ class ZoteroService:
             else:
                 return False, None, f"Zotero API error creating item: {resp.status_code} - {resp.text}"
 
+    async def create_journal_article_item(
+        self,
+        title: str,
+        creators: Optional[List[str]] = None,
+        journal: Optional[str] = None,
+        publication_year: Optional[str] = None,
+        doi: Optional[str] = None,
+        url: Optional[str] = None,
+        pmid: Optional[str] = None,
+        abstract_note: Optional[str] = None,
+        collection_key: Optional[str] = None,
+        tags: Optional[List[str]] = None
+    ) -> Tuple[bool, Optional[str], str]:
+        """
+        Creates a journalArticle bibliographic item in Zotero for PubMed or JSTOR entries.
+        Returns (success, item_key, message).
+        """
+        creator_objs = []
+        if creators:
+            for c in creators:
+                parts = c.split(" ", 1)
+                if len(parts) == 2:
+                    creator_objs.append({"creatorType": "author", "firstName": parts[0], "lastName": parts[1]})
+                else:
+                    creator_objs.append({"creatorType": "author", "name": c})
+        else:
+            creator_objs.append({"creatorType": "author", "name": "Unknown Author"})
+
+        tag_objs = [{"tag": t} for t in (tags or ["literature-search"])]
+
+        extra_parts = []
+        if pmid:
+            extra_parts.append(f"PMID: {pmid}")
+        if doi:
+            extra_parts.append(f"DOI: {doi}")
+
+        item_data: Dict[str, Any] = {
+            "itemType": "journalArticle",
+            "title": title or "Untitled Article",
+            "creators": creator_objs,
+            "publicationTitle": journal or "",
+            "date": publication_year or "",
+            "DOI": doi or "",
+            "url": url or "",
+            "extra": "\n".join(extra_parts),
+            "abstractNote": (abstract_note[:3000] if abstract_note else ""),
+            "tags": tag_objs
+        }
+        if collection_key:
+            item_data["collections"] = [collection_key]
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{self.library_url}/items",
+                headers=self.headers,
+                json=[item_data]
+            )
+            if resp.status_code in (200, 201):
+                res_data = resp.json()
+                successful = res_data.get("successful", {})
+                if successful:
+                    created_key = list(successful.values())[0].get("key")
+                    return True, created_key, "Journal article created in Zotero."
+                return True, None, "Saved in Zotero, but key was not returned."
+            else:
+                return False, None, f"Zotero API error creating journal article: {resp.status_code} - {resp.text}"
+
+

@@ -134,6 +134,9 @@
           <button id="tab-work-docs" onclick="switchTab('work-docs')" class="tab-btn px-3 py-1.5 text-xs font-medium rounded-md text-slate-600 hover:bg-slate-100 transition">
             <i class="fa-solid fa-file-shield mr-1.5"></i> Work Documents
           </button>
+          <button id="tab-literature" onclick="switchTab('literature')" class="tab-btn px-3 py-1.5 text-xs font-medium rounded-md text-slate-600 hover:bg-slate-100 transition">
+            <i class="fa-solid fa-magnifying-glass mr-1.5 text-indigo-500"></i> Search Literature (PubMed & JSTOR)
+          </button>
         </div>
 
         <!-- Action & Option Controls -->
@@ -276,6 +279,64 @@
             </div>
           </div>
 
+          <!-- Mode 5: Literature Search (PubMed & JSTOR) -->
+          <div id="panel-literature" class="mode-panel space-y-3 hidden">
+            <!-- Source Selector & Search Controls -->
+            <div class="flex flex-wrap items-center gap-2">
+              <div class="inline-flex rounded-md shadow-xs bg-slate-100 p-0.5 border border-slate-200">
+                <button type="button" id="lit-source-pubmed" onclick="setLitSource('pubmed')" class="px-3 py-1.5 text-xs font-semibold rounded bg-white text-blue-700 shadow-xs transition">
+                  <i class="fa-solid fa-dna mr-1 text-blue-600"></i> PubMed (Biomedical)
+                </button>
+                <button type="button" id="lit-source-jstor" onclick="setLitSource('jstor')" class="px-3 py-1.5 text-xs font-medium rounded text-slate-600 hover:text-slate-900 transition">
+                  <i class="fa-solid fa-book-bookmark mr-1 text-amber-600"></i> JSTOR (Arts & Humanities)
+                </button>
+              </div>
+
+              <!-- Search query input -->
+              <div class="flex-1 min-w-[240px] relative">
+                <input type="text" id="lit-search-input" onkeydown="if(event.key==='Enter') runLiteratureSearch()" placeholder="Search PubMed or JSTOR articles (e.g., 'CRISPR base editing' or 'deterrence theory')..." class="w-full text-xs pl-8 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-2.5 text-slate-400 text-xs"></i>
+              </div>
+
+              <!-- Limit -->
+              <select id="lit-limit-select" class="text-xs bg-white border border-slate-300 rounded-md py-2 px-2 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                <option value="10">10 results</option>
+                <option value="20">20 results</option>
+                <option value="30">30 results</option>
+              </select>
+
+              <!-- Search button -->
+              <button onclick="runLiteratureSearch()" id="btn-lit-search" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-xs rounded-md shadow-sm transition flex items-center space-x-1.5">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <span>Search</span>
+              </button>
+            </div>
+
+            <!-- JSTOR Institutional Access Banner -->
+            <div id="jstor-proxy-banner" class="hidden text-xs bg-amber-50 border border-amber-200 rounded-md p-2.5 flex items-center justify-between">
+              <div class="flex items-center space-x-2 text-amber-900">
+                <i class="fa-solid fa-graduation-cap text-amber-600 text-sm"></i>
+                <span><strong>JSTOR School Access:</strong> Articles will route through your configured university proxy for full-text access.</span>
+              </div>
+              <div class="flex items-center space-x-2">
+                <a href="https://www.jstor.org/institutionSearch" target="_blank" class="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-medium text-[11px] rounded flex items-center space-x-1 shadow-xs">
+                  <i class="fa-solid fa-arrow-up-right-from-square"></i>
+                  <span>Log in with School on JSTOR ↗</span>
+                </a>
+                <button onclick="toggleSettingsModal()" class="text-[11px] text-amber-800 underline hover:text-amber-950 font-medium cursor-pointer">Configure Proxy</button>
+              </div>
+            </div>
+
+            <!-- Results status bar -->
+            <div id="lit-results-status" class="hidden flex items-center justify-between text-xs text-slate-600 py-1 border-b border-slate-100">
+              <span id="lit-results-count" class="font-medium text-slate-800">Showing 0 results</span>
+              <span class="text-slate-400 italic">Click "Review" to analyze with Gemini or "Import" to save to Zotero</span>
+            </div>
+
+            <!-- Results container -->
+            <div id="lit-results-list" class="space-y-2 max-h-[460px] overflow-y-auto pr-1"></div>
+          </div>
+
         </div>
 
         <!-- Review Output & Actions Header -->
@@ -386,6 +447,30 @@
             <option value="user">User Library</option>
             <option value="group">Group Library</option>
           </select>
+        </div>
+
+        <hr class="border-slate-100">
+
+        <!-- PubMed & JSTOR Institutional Access Settings -->
+        <div>
+          <label class="block font-medium text-slate-700 mb-1 flex items-center justify-between">
+            <span>PubMed API Key <span class="text-slate-400 font-normal">(Optional)</span></span>
+            <span class="text-[10px] text-emerald-600 font-medium">Free / 3 req/s without key</span>
+          </label>
+          <input type="password" id="modal-ncbi-key" placeholder="Optional NCBI PubMed API key" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
+          <p class="text-[10px] text-slate-500 mt-0.5">Increases rate limit from 3 to 10 req/sec. Works automatically without a key.</p>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <label class="block font-medium text-slate-700">School / University Proxy Prefix <span class="text-slate-400 font-normal">(JSTOR)</span></label>
+            <a href="https://www.jstor.org/institutionSearch" target="_blank" class="text-[10px] text-blue-600 hover:text-blue-800 underline font-normal flex items-center space-x-1">
+              <i class="fa-solid fa-graduation-cap"></i>
+              <span>Log in with School on JSTOR ↗</span>
+            </a>
+          </div>
+          <input type="text" id="modal-school-proxy" placeholder="e.g. https://proxy.lib.school.edu/login?url=" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
+          <p class="text-[10px] text-slate-500 mt-0.5">Enter your university's EZProxy prefix so JSTOR articles open authenticated with your student/faculty login.</p>
         </div>
       </div>
 
