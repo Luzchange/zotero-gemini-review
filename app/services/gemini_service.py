@@ -21,9 +21,9 @@ logger = logging.getLogger(__name__)
 class GeminiService:
     """Service handling literature analysis via Google Gemini API and OpenAI-compatible gateways (e.g. GenAI.mil)."""
 
-    def __init__(self, api_key: str, default_model: str = "gemini-2.5-flash", base_url: Optional[str] = None):
+    def __init__(self, api_key: str, default_model: str = "gemini-3.6-flash", base_url: Optional[str] = None):
         self.api_key = api_key.strip() if api_key else ""
-        self.model = default_model or "gemini-2.5-flash"
+        self.model = default_model or "gemini-3.6-flash"
         self.base_url = base_url.strip() if base_url else ""
         # Auto-detect GenAI.mil DoD token
         if self.api_key.startswith("STARK_") and not self.base_url:

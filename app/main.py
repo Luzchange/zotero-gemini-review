@@ -67,7 +67,7 @@ async def home(request: Request):
         context={
             "has_gemini_key": bool(creds.get("gemini_key")),
             "has_zotero_creds": bool(creds.get("zotero_key") and creds.get("zotero_user_id")),
-            "default_model": creds.get("gemini_model", "gemini-2.5-flash")
+            "default_model": creds.get("gemini_model", "gemini-3.6-flash")
         }
     )
 

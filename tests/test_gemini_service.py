@@ -83,3 +83,8 @@ async def test_gemini_service_openai_generation_mocked(monkeypatch):
 
     assert "# Mock GenAI.mil Review" in result
 
+def test_gemini_service_default_model():
+    service = GeminiService(api_key="fake_key")
+    assert service.model == "gemini-3.6-flash"
+
+

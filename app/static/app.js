@@ -13,7 +13,7 @@ let appState = {
   searchTimeout: null,
   credentials: {
     geminiKey: localStorage.getItem('zg_gemini_key') || '',
-    geminiModel: localStorage.getItem('zg_gemini_model') || 'gemini-2.5-flash',
+    geminiModel: localStorage.getItem('zg_gemini_model') || 'gemini-3.6-flash',
     geminiBaseUrl: localStorage.getItem('zg_gemini_base_url') || '',
     zoteroKey: localStorage.getItem('zg_zotero_key') || '',
     zoteroUserId: localStorage.getItem('zg_zotero_user_id') || '',
@@ -489,12 +489,42 @@ function toggleSettingsModal() {
   if (!modal.classList.contains('hidden')) {
     const keyInput = document.getElementById('modal-gemini-key');
     const urlInput = document.getElementById('modal-gemini-base-url');
+    const modelSelect = document.getElementById('modal-gemini-model');
+    const customModelInput = document.getElementById('modal-gemini-model-custom');
+    const currentModel = appState.credentials.geminiModel || 'gemini-3.6-flash';
+
     keyInput.value = appState.credentials.geminiKey || '';
     urlInput.value = appState.credentials.geminiBaseUrl || '';
-    document.getElementById('modal-gemini-model').value = appState.credentials.geminiModel || 'gemini-2.5-flash';
     document.getElementById('modal-zotero-key').value = appState.credentials.zoteroKey || '';
     document.getElementById('modal-zotero-user-id').value = appState.credentials.zoteroUserId || '';
     document.getElementById('modal-zotero-lib-type').value = appState.credentials.zoteroLibType || 'user';
+
+    // Match model in dropdown or reveal custom input
+    let found = false;
+    for (let i = 0; i < modelSelect.options.length; i++) {
+      if (modelSelect.options[i].value === currentModel) {
+        modelSelect.value = currentModel;
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      modelSelect.value = 'custom';
+      customModelInput.value = currentModel;
+      customModelInput.classList.remove('hidden');
+    } else {
+      customModelInput.classList.add('hidden');
+      customModelInput.value = '';
+    }
+
+    modelSelect.onchange = () => {
+      if (modelSelect.value === 'custom') {
+        customModelInput.classList.remove('hidden');
+        customModelInput.focus();
+      } else {
+        customModelInput.classList.add('hidden');
+      }
+    };
 
     // Auto-fill GenAI.mil base URL if user pastes a STARK token
     keyInput.oninput = () => {
@@ -512,9 +542,14 @@ async function saveSettingsFromModal() {
     gemBaseUrl = 'https://api.genai.mil/v1';
   }
 
+  const modelSelect = document.getElementById('modal-gemini-model');
+  const customModelInput = document.getElementById('modal-gemini-model-custom');
+  let chosenModel = modelSelect.value === 'custom' ? customModelInput.value.trim() : modelSelect.value;
+  if (!chosenModel) chosenModel = 'gemini-3.6-flash';
+
   appState.credentials.geminiKey = gemKey;
   appState.credentials.geminiBaseUrl = gemBaseUrl;
-  appState.credentials.geminiModel = document.getElementById('modal-gemini-model').value;
+  appState.credentials.geminiModel = chosenModel;
   appState.credentials.zoteroKey = document.getElementById('modal-zotero-key').value.trim();
   appState.credentials.zoteroUserId = document.getElementById('modal-zotero-user-id').value.trim();
   appState.credentials.zoteroLibType = document.getElementById('modal-zotero-lib-type').value;

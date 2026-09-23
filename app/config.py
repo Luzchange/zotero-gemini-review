@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     )
 
     GEMINI_API_KEY: Optional[str] = None
-    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_MODEL: str = "gemini-3.6-flash"
     GEMINI_BASE_URL: Optional[str] = None
     
     ZOTERO_API_KEY: Optional[str] = None
@@ -74,7 +74,7 @@ def get_credentials(request: Optional[Request] = None):
 
     return {
         "gemini_key": cleaned_key,
-        "gemini_model": gemini_model or "gemini-2.5-flash",
+        "gemini_model": gemini_model or "gemini-3.6-flash",
         "gemini_base_url": cleaned_base_url,
         "zotero_key": clean_val(zotero_key),
         "zotero_user_id": clean_val(zotero_user_id),
