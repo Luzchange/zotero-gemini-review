@@ -1,6 +1,8 @@
 import json
 import logging
+import io
 from typing import List, Dict, Any, Optional
+import httpx
 import markdown
 from fastapi import HTTPException
 
@@ -17,12 +19,72 @@ from app.schemas.schemas import (
 logger = logging.getLogger(__name__)
 
 class GeminiService:
-    """Service handling literature analysis via Google Gemini API."""
+    """Service handling literature analysis via Google Gemini API and OpenAI-compatible gateways (e.g. GenAI.mil)."""
 
-    def __init__(self, api_key: str, default_model: str = "gemini-2.5-flash"):
+    def __init__(self, api_key: str, default_model: str = "gemini-2.5-flash", base_url: Optional[str] = None):
         self.api_key = api_key.strip() if api_key else ""
         self.model = default_model or "gemini-2.5-flash"
+        self.base_url = base_url.strip() if base_url else ""
+        # Auto-detect GenAI.mil DoD token
+        if self.api_key.startswith("STARK_") and not self.base_url:
+            self.base_url = "https://api.genai.mil/v1"
         self._client = None
+
+    def _is_openai_compatible(self) -> bool:
+        return bool(self.base_url) or self.api_key.startswith("STARK_")
+
+    async def _generate_openai_compatible(
+        self,
+        model: str,
+        system_instruction: str,
+        user_prompt: str,
+        temperature: float = 0.2
+    ) -> str:
+        """Call an OpenAI-compatible endpoint such as GenAI.mil (/v1/chat/completions)."""
+        endpoint = self.base_url.rstrip("/")
+        if not endpoint.endswith("/chat/completions"):
+            endpoint = f"{endpoint}/chat/completions"
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        messages = []
+        if system_instruction:
+            messages.append({"role": "system", "content": system_instruction})
+        messages.append({"role": "user", "content": user_prompt})
+
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature
+        }
+
+        logger.info(f"Dispatching request to GenAI endpoint: {endpoint} (model: {model})")
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                resp = await client.post(endpoint, headers=headers, json=payload)
+                if resp.is_error:
+                    error_detail = resp.text
+                    try:
+                        err_json = resp.json()
+                        error_detail = err_json.get("error", {}).get("message") or err_json.get("detail") or resp.text
+                    except Exception:
+                        pass
+                    raise HTTPException(
+                        status_code=resp.status_code if resp.status_code >= 400 else 502,
+                        detail=f"GenAI Endpoint error ({resp.status_code}): {error_detail}"
+                    )
+                data = resp.json()
+                choices = data.get("choices", [])
+                if not choices:
+                    raise HTTPException(status_code=502, detail=f"No response choices returned by GenAI: {data}")
+                return choices[0]["message"]["content"]
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error connecting to GenAI endpoint ({endpoint}): {e}")
+            raise HTTPException(status_code=502, detail=f"Failed to connect to GenAI endpoint: {str(e)}")
 
     def _get_client(self):
         """Lazy load google-genai client."""
@@ -71,7 +133,6 @@ class GeminiService:
         model_override: Optional[str] = None
     ) -> SinglePaperReviewResponse:
         """Perform a rigorous, structured academic critique and deep dive on a single paper."""
-        client = self._get_client()
         active_model = model_override or self.model
 
         authors = ", ".join(paper.creators) if paper.creators else "Unknown Authors"
@@ -107,31 +168,51 @@ Output format:
 Respond in rich, professional Markdown with clear headings.
 """
 
-        contents: List[Any] = []
-        if pdf_bytes:
-            from google.genai import types
-            logger.info(f"Including full PDF attachment ({len(pdf_bytes)} bytes) in Gemini prompt.")
-            contents.append(
-                types.Part.from_bytes(
-                    data=pdf_bytes,
-                    mime_type="application/pdf"
-                )
-            )
-        contents.append(user_prompt)
-
-        try:
-            response = client.models.generate_content(
+        if self._is_openai_compatible():
+            if pdf_bytes:
+                try:
+                    from pypdf import PdfReader
+                    reader = PdfReader(io.BytesIO(pdf_bytes))
+                    pages_text = [page.extract_text() or "" for page in reader.pages[:40]]
+                    pdf_text = "\n".join(pages_text).strip()
+                    if pdf_text:
+                        logger.info(f"Extracted {len(pdf_text)} characters from PDF for GenAI analysis.")
+                        user_prompt += f"\n\n---\nFULL EXTRACTED PAPER TEXT FROM PDF:\n{pdf_text[:80000]}\n---"
+                except Exception as e:
+                    logger.warning(f"Could not extract text from PDF: {e}")
+            review_md = await self._generate_openai_compatible(
                 model=active_model,
-                contents=contents,
-                config={
-                    "system_instruction": system_instruction,
-                    "temperature": 0.2,
-                }
+                system_instruction=system_instruction,
+                user_prompt=user_prompt,
+                temperature=0.2
             )
-            review_md = response.text or "No review generated."
-        except Exception as e:
-            logger.error(f"Gemini API error during single paper review: {e}")
-            raise HTTPException(status_code=502, detail=f"Gemini API generation failed: {str(e)}")
+        else:
+            client = self._get_client()
+            contents: List[Any] = []
+            if pdf_bytes:
+                from google.genai import types
+                logger.info(f"Including full PDF attachment ({len(pdf_bytes)} bytes) in Gemini prompt.")
+                contents.append(
+                    types.Part.from_bytes(
+                        data=pdf_bytes,
+                        mime_type="application/pdf"
+                    )
+                )
+            contents.append(user_prompt)
+
+            try:
+                response = client.models.generate_content(
+                    model=active_model,
+                    contents=contents,
+                    config={
+                        "system_instruction": system_instruction,
+                        "temperature": 0.2,
+                    }
+                )
+                review_md = response.text or "No review generated."
+            except Exception as e:
+                logger.error(f"Gemini API error during single paper review: {e}")
+                raise HTTPException(status_code=502, detail=f"Gemini API generation failed: {str(e)}")
 
         zotero_html = self._markdown_to_zotero_html(review_md, paper.title)
 
@@ -164,7 +245,6 @@ Respond in rich, professional Markdown with clear headings.
         if not papers:
             raise ValueError("No papers provided for synthesis.")
 
-        client = self._get_client()
         active_model = model_override or self.model
 
         theme_text = f"Research Theme: '{research_theme}'" if research_theme else "General Thematic Review across Collection"
@@ -206,19 +286,28 @@ How research methods and questions have evolved across these works over time.
 A cohesive narrative synthesizing the current state of knowledge and implications for researchers.
 """
 
-        try:
-            response = client.models.generate_content(
+        if self._is_openai_compatible():
+            synthesis_md = await self._generate_openai_compatible(
                 model=active_model,
-                contents=[user_prompt],
-                config={
-                    "system_instruction": system_instruction,
-                    "temperature": 0.3,
-                }
+                system_instruction=system_instruction,
+                user_prompt=user_prompt,
+                temperature=0.3
             )
-            synthesis_md = response.text or "No synthesis generated."
-        except Exception as e:
-            logger.error(f"Gemini API error during synthesis: {e}")
-            raise HTTPException(status_code=502, detail=f"Gemini API synthesis failed: {str(e)}")
+        else:
+            client = self._get_client()
+            try:
+                response = client.models.generate_content(
+                    model=active_model,
+                    contents=[user_prompt],
+                    config={
+                        "system_instruction": system_instruction,
+                        "temperature": 0.3,
+                    }
+                )
+                synthesis_md = response.text or "No synthesis generated."
+            except Exception as e:
+                logger.error(f"Gemini API error during synthesis: {e}")
+                raise HTTPException(status_code=502, detail=f"Gemini API synthesis failed: {str(e)}")
 
         zotero_html = self._markdown_to_zotero_html(synthesis_md, f"Synthesis ({len(papers)} papers)")
 
@@ -250,7 +339,6 @@ A cohesive narrative synthesizing the current state of knowledge and implication
         if not papers:
             raise ValueError("No papers provided for gap analysis.")
 
-        client = self._get_client()
         active_model = model_override or self.model
 
         domain_prompt = f"Target Domain/Context: '{target_domain}'\n" if target_domain else ""
@@ -278,19 +366,28 @@ Please structure your response in Markdown with:
 4. **Proposed Study Designs**: For each proposed question, outline a viable methodology (sample, variables, experimental/empirical strategy).
 """
 
-        try:
-            response = client.models.generate_content(
+        if self._is_openai_compatible():
+            gaps_md = await self._generate_openai_compatible(
                 model=active_model,
-                contents=[user_prompt],
-                config={
-                    "system_instruction": system_instruction,
-                    "temperature": 0.4,
-                }
+                system_instruction=system_instruction,
+                user_prompt=user_prompt,
+                temperature=0.4
             )
-            gaps_md = response.text or "No gap analysis generated."
-        except Exception as e:
-            logger.error(f"Gemini API error during gap analysis: {e}")
-            raise HTTPException(status_code=502, detail=f"Gemini API gap analysis failed: {str(e)}")
+        else:
+            client = self._get_client()
+            try:
+                response = client.models.generate_content(
+                    model=active_model,
+                    contents=[user_prompt],
+                    config={
+                        "system_instruction": system_instruction,
+                        "temperature": 0.4,
+                    }
+                )
+                gaps_md = response.text or "No gap analysis generated."
+            except Exception as e:
+                logger.error(f"Gemini API error during gap analysis: {e}")
+                raise HTTPException(status_code=502, detail=f"Gemini API gap analysis failed: {str(e)}")
 
         zotero_html = self._markdown_to_zotero_html(gaps_md, f"Research Gaps Analysis ({len(papers)} papers)")
 
@@ -310,7 +407,6 @@ Please structure your response in Markdown with:
         model_override: Optional[str] = None
     ) -> LiteratureChatResponse:
         """Answer queries grounded in the selected literature corpus."""
-        client = self._get_client()
         active_model = model_override or self.model
 
         corpus_text = "\n\n".join([
@@ -330,18 +426,27 @@ Instructions:
 - Be concise, direct, and academically rigorous.
 """
 
-        try:
-            response = client.models.generate_content(
+        if self._is_openai_compatible():
+            answer = await self._generate_openai_compatible(
                 model=active_model,
-                contents=[prompt],
-                config={
-                    "temperature": 0.2,
-                }
+                system_instruction="",
+                user_prompt=prompt,
+                temperature=0.2
             )
-            answer = response.text or "No response generated."
-        except Exception as e:
-            logger.error(f"Gemini API error during literature chat: {e}")
-            raise HTTPException(status_code=502, detail=f"Gemini API chat failed: {str(e)}")
+        else:
+            client = self._get_client()
+            try:
+                response = client.models.generate_content(
+                    model=active_model,
+                    contents=[prompt],
+                    config={
+                        "temperature": 0.2,
+                    }
+                )
+                answer = response.text or "No response generated."
+            except Exception as e:
+                logger.error(f"Gemini API error during literature chat: {e}")
+                raise HTTPException(status_code=502, detail=f"Gemini API chat failed: {str(e)}")
 
         # Find cited papers by key
         cited_keys = [p.key for p in papers if p.key.lower() in answer.lower() or any(c.split()[0].lower() in answer.lower() for c in p.creators if c)]

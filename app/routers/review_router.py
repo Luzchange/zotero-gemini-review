@@ -30,7 +30,8 @@ def get_gemini_service(request: Request) -> GeminiService:
         )
     return GeminiService(
         api_key=creds["gemini_key"],
-        default_model=creds["gemini_model"]
+        default_model=creds["gemini_model"],
+        base_url=creds.get("gemini_base_url")
     )
 
 def get_zotero_service(request: Request) -> ZoteroService:

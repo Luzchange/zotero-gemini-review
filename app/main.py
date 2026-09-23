@@ -81,6 +81,7 @@ async def health_check(request: Request):
         "version": "1.0.0",
         "gemini_configured": bool(creds.get("gemini_key")),
         "gemini_model": creds.get("gemini_model"),
+        "gemini_base_url": creds.get("gemini_base_url"),
         "zotero_configured": bool(creds.get("zotero_key") and creds.get("zotero_user_id")),
         "zotero_user_id": creds.get("zotero_user_id") if creds.get("zotero_user_id") else None,
         "library_type": creds.get("zotero_library_type")

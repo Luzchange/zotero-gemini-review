@@ -250,13 +250,19 @@
 
       <div class="space-y-3 text-xs">
         <div>
-          <label class="block font-medium text-slate-700 mb-1">Google Gemini API Key</label>
-          <input type="password" id="modal-gemini-key" placeholder="AIzaSy..." class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
-          <p class="text-[10px] text-slate-500 mt-0.5">Get a key from <a href="https://aistudio.google.com/" target="_blank" class="text-blue-600 underline">Google AI Studio</a>.</p>
+          <label class="block font-medium text-slate-700 mb-1">API Key / Token</label>
+          <input type="password" id="modal-gemini-key" placeholder="AIzaSy... or STARK_..." class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
+          <p class="text-[10px] text-slate-500 mt-0.5">Google AI Studio key (<code class="text-blue-600">AIzaSy...</code>) or GenAI.mil token (<code class="text-blue-600">STARK_...</code>).</p>
         </div>
 
         <div>
-          <label class="block font-medium text-slate-700 mb-1">Gemini Model</label>
+          <label class="block font-medium text-slate-700 mb-1">API Endpoint / Base URL <span class="text-slate-400 font-normal">(Optional)</span></label>
+          <input type="text" id="modal-gemini-base-url" placeholder="https://api.genai.mil/v1 (or leave blank for Google AI Studio)" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
+          <p class="text-[10px] text-slate-500 mt-0.5">Use <code class="text-blue-600">https://api.genai.mil/v1</code> for GenAI.mil, or leave empty for standard Google AI Studio.</p>
+        </div>
+
+        <div>
+          <label class="block font-medium text-slate-700 mb-1">Model</label>
           <select id="modal-gemini-model" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
             <option value="gemini-2.5-flash">gemini-2.5-flash (Fast, Recommended)</option>
             <option value="gemini-2.0-flash">gemini-2.0-flash (General Purpose)</option>

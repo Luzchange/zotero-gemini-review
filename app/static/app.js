@@ -14,6 +14,7 @@ let appState = {
   credentials: {
     geminiKey: localStorage.getItem('zg_gemini_key') || '',
     geminiModel: localStorage.getItem('zg_gemini_model') || 'gemini-2.5-flash',
+    geminiBaseUrl: localStorage.getItem('zg_gemini_base_url') || '',
     zoteroKey: localStorage.getItem('zg_zotero_key') || '',
     zoteroUserId: localStorage.getItem('zg_zotero_user_id') || '',
     zoteroLibType: localStorage.getItem('zg_zotero_lib_type') || 'user'
@@ -25,6 +26,7 @@ async function apiFetch(url, options = {}) {
   const headers = options.headers || {};
   if (appState.credentials.geminiKey) headers['X-Gemini-Key'] = appState.credentials.geminiKey;
   if (appState.credentials.geminiModel) headers['X-Gemini-Model'] = appState.credentials.geminiModel;
+  if (appState.credentials.geminiBaseUrl) headers['X-Gemini-Base-Url'] = appState.credentials.geminiBaseUrl;
   if (appState.credentials.zoteroKey) headers['X-Zotero-Key'] = appState.credentials.zoteroKey;
   if (appState.credentials.zoteroUserId) headers['X-Zotero-User-Id'] = appState.credentials.zoteroUserId;
   if (appState.credentials.zoteroLibType) headers['X-Zotero-Library-Type'] = appState.credentials.zoteroLibType;
@@ -67,8 +69,12 @@ async function checkHealthAndCredentials() {
     const health = await res.json();
 
     if (health.gemini_configured || appState.credentials.geminiKey) {
-      geminiBadge.className = 'flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200';
-      geminiBadge.innerHTML = `<i class="fa-solid fa-circle text-[8px] text-emerald-500"></i><span>Gemini: Ready</span>`;
+      const isMil = (appState.credentials.geminiBaseUrl && appState.credentials.geminiBaseUrl.includes('genai.mil')) || 
+                    (appState.credentials.geminiKey && appState.credentials.geminiKey.startsWith('STARK_'));
+      const label = isMil ? 'GenAI.mil: Ready' : 'Gemini: Ready';
+      geminiBadge.className = 'flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 cursor-pointer';
+      geminiBadge.innerHTML = `<i class="fa-solid fa-circle text-[8px] text-emerald-500"></i><span>${label}</span>`;
+      geminiBadge.onclick = toggleSettingsModal;
     } else {
       geminiBadge.className = 'flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-medium bg-rose-50 text-rose-700 border border-rose-200 cursor-pointer';
       geminiBadge.innerHTML = `<i class="fa-solid fa-circle text-[8px] text-rose-500"></i><span>Gemini: Missing Key</span>`;
@@ -481,22 +487,40 @@ function toggleSettingsModal() {
   modal.classList.toggle('hidden');
 
   if (!modal.classList.contains('hidden')) {
-    document.getElementById('modal-gemini-key').value = appState.credentials.geminiKey || '';
+    const keyInput = document.getElementById('modal-gemini-key');
+    const urlInput = document.getElementById('modal-gemini-base-url');
+    keyInput.value = appState.credentials.geminiKey || '';
+    urlInput.value = appState.credentials.geminiBaseUrl || '';
     document.getElementById('modal-gemini-model').value = appState.credentials.geminiModel || 'gemini-2.5-flash';
     document.getElementById('modal-zotero-key').value = appState.credentials.zoteroKey || '';
     document.getElementById('modal-zotero-user-id').value = appState.credentials.zoteroUserId || '';
     document.getElementById('modal-zotero-lib-type').value = appState.credentials.zoteroLibType || 'user';
+
+    // Auto-fill GenAI.mil base URL if user pastes a STARK token
+    keyInput.oninput = () => {
+      if (keyInput.value.trim().startsWith('STARK_') && !urlInput.value.trim()) {
+        urlInput.value = 'https://api.genai.mil/v1';
+      }
+    };
   }
 }
 
 async function saveSettingsFromModal() {
-  appState.credentials.geminiKey = document.getElementById('modal-gemini-key').value.trim();
+  let gemKey = document.getElementById('modal-gemini-key').value.trim();
+  let gemBaseUrl = document.getElementById('modal-gemini-base-url').value.trim();
+  if (gemKey.startsWith('STARK_') && !gemBaseUrl) {
+    gemBaseUrl = 'https://api.genai.mil/v1';
+  }
+
+  appState.credentials.geminiKey = gemKey;
+  appState.credentials.geminiBaseUrl = gemBaseUrl;
   appState.credentials.geminiModel = document.getElementById('modal-gemini-model').value;
   appState.credentials.zoteroKey = document.getElementById('modal-zotero-key').value.trim();
   appState.credentials.zoteroUserId = document.getElementById('modal-zotero-user-id').value.trim();
   appState.credentials.zoteroLibType = document.getElementById('modal-zotero-lib-type').value;
 
   localStorage.setItem('zg_gemini_key', appState.credentials.geminiKey);
+  localStorage.setItem('zg_gemini_base_url', appState.credentials.geminiBaseUrl);
   localStorage.setItem('zg_gemini_model', appState.credentials.geminiModel);
   localStorage.setItem('zg_zotero_key', appState.credentials.zoteroKey);
   localStorage.setItem('zg_zotero_user_id', appState.credentials.zoteroUserId);
