@@ -33,6 +33,21 @@ async function apiFetch(url, options = {}) {
   return await fetch(url, options);
 }
 
+// Safely parse error messages from responses without crashing on HTML or plain-text 500 errors
+async function parseErrorMessage(res) {
+  try {
+    const data = await res.json();
+    return data.detail || data.message || JSON.stringify(data);
+  } catch (_) {
+    try {
+      const text = await res.text();
+      return text || `HTTP ${res.status}: ${res.statusText}`;
+    } catch (_) {
+      return `HTTP ${res.status}: ${res.statusText}`;
+    }
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   initApp();
 });
@@ -110,7 +125,8 @@ async function loadPapers(collectionKey = null, query = null) {
   try {
     const res = await apiFetch(url);
     if (!res.ok) {
-      loading.innerHTML = `<p class="text-rose-500">Failed to load papers. Check Zotero credentials.</p>`;
+      const errMsg = await parseErrorMessage(res);
+      loading.innerHTML = `<p class="text-rose-500 font-medium">Failed to load papers: ${escapeHtml(errMsg)}</p>`;
       return;
     }
     const data = await res.json();
@@ -290,8 +306,8 @@ async function runSinglePaperReview() {
     });
 
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || 'Review failed');
+      const errMsg = await parseErrorMessage(res);
+      throw new Error(errMsg);
     }
 
     const data = await res.json();
@@ -327,8 +343,8 @@ async function runCollectionSynthesis() {
     });
 
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || 'Synthesis failed');
+      const errMsg = await parseErrorMessage(res);
+      throw new Error(errMsg);
     }
 
     const data = await res.json();
@@ -359,8 +375,8 @@ async function runGapAnalysis() {
     });
 
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || 'Gap analysis failed');
+      const errMsg = await parseErrorMessage(res);
+      throw new Error(errMsg);
     }
 
     const data = await res.json();
@@ -395,8 +411,8 @@ async function runChatQuery() {
     });
 
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || 'Chat query failed');
+      const errMsg = await parseErrorMessage(res);
+      throw new Error(errMsg);
     }
 
     const data = await res.json();
@@ -437,8 +453,8 @@ async function saveActiveReviewToZotero() {
     });
 
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || 'Could not save note to Zotero');
+      const errMsg = await parseErrorMessage(res);
+      throw new Error(errMsg);
     }
 
     alert('✅ Successfully pushed literature review as a child note to Zotero!');

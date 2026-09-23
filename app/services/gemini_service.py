@@ -2,6 +2,7 @@ import json
 import logging
 from typing import List, Dict, Any, Optional
 import markdown
+from fastapi import HTTPException
 
 from app.schemas.schemas import (
     PaperItem,
@@ -130,7 +131,7 @@ Respond in rich, professional Markdown with clear headings.
             review_md = response.text or "No review generated."
         except Exception as e:
             logger.error(f"Gemini API error during single paper review: {e}")
-            raise RuntimeError(f"Gemini API generation failed: {str(e)}")
+            raise HTTPException(status_code=502, detail=f"Gemini API generation failed: {str(e)}")
 
         zotero_html = self._markdown_to_zotero_html(review_md, paper.title)
 
@@ -217,7 +218,7 @@ A cohesive narrative synthesizing the current state of knowledge and implication
             synthesis_md = response.text or "No synthesis generated."
         except Exception as e:
             logger.error(f"Gemini API error during synthesis: {e}")
-            raise RuntimeError(f"Gemini API synthesis failed: {str(e)}")
+            raise HTTPException(status_code=502, detail=f"Gemini API synthesis failed: {str(e)}")
 
         zotero_html = self._markdown_to_zotero_html(synthesis_md, f"Synthesis ({len(papers)} papers)")
 
@@ -289,7 +290,7 @@ Please structure your response in Markdown with:
             gaps_md = response.text or "No gap analysis generated."
         except Exception as e:
             logger.error(f"Gemini API error during gap analysis: {e}")
-            raise RuntimeError(f"Gemini API gap analysis failed: {str(e)}")
+            raise HTTPException(status_code=502, detail=f"Gemini API gap analysis failed: {str(e)}")
 
         zotero_html = self._markdown_to_zotero_html(gaps_md, f"Research Gaps Analysis ({len(papers)} papers)")
 
@@ -308,35 +309,24 @@ Please structure your response in Markdown with:
         chat_history: Optional[List[Dict[str, str]]] = None,
         model_override: Optional[str] = None
     ) -> LiteratureChatResponse:
-        """Interactive Q&A answering questions grounded in the provided papers."""
+        """Answer queries grounded in the selected literature corpus."""
         client = self._get_client()
         active_model = model_override or self.model
 
-        papers_context = "\n---\n".join([self._build_paper_summary_text(p) for p in papers])
-
-        history_context = ""
-        if chat_history:
-            for turn in chat_history[-6:]:  # Keep recent history
-                role = turn.get("role", "user")
-                content = turn.get("content", "")
-                history_context += f"{role.upper()}: {content}\n"
+        corpus_text = "\n\n".join([
+            f"Paper Key: {p.key}\nTitle: {p.title}\nAuthors: {', '.join(p.creators)}\nYear: {p.year or 'n.d.'}\nAbstract: {p.abstract_note}"
+            for p in papers[:20]
+        ])
 
         prompt = f"""
-You are a research assistant answering questions strictly based on the researcher's Zotero library papers below.
+You are a knowledgeable literature assistant answering research questions based on the following library corpus:
 
-LIBRARY PAPERS:
-{papers_context}
+{corpus_text}
 
-PREVIOUS CONVERSATION:
-{history_context}
-
-RESEARCHER'S QUESTION:
-{query}
+User Question: {query}
 
 Instructions:
-- Provide an evidence-grounded answer based on the papers above.
-- Cite the relevant papers explicitly using author and year (e.g., [Vaswani et al., 2017]).
-- If the papers in the library do not contain enough information to answer, state clearly what is missing from the library.
+- Provide an evidence-grounded answer citing the papers where appropriate (e.g. [Vaswani et al. 2017]).
 - Be concise, direct, and academically rigorous.
 """
 
@@ -351,7 +341,7 @@ Instructions:
             answer = response.text or "No response generated."
         except Exception as e:
             logger.error(f"Gemini API error during literature chat: {e}")
-            raise RuntimeError(f"Gemini API chat failed: {str(e)}")
+            raise HTTPException(status_code=502, detail=f"Gemini API chat failed: {str(e)}")
 
         # Find cited papers by key
         cited_keys = [p.key for p in papers if p.key.lower() in answer.lower() or any(c.split()[0].lower() in answer.lower() for c in p.creators if c)]
