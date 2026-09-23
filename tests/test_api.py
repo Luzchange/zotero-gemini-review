@@ -21,12 +21,21 @@ def test_home_page():
     assert response.status_code == 200
     assert "GResearch" in response.text
 
-def test_zotero_verify_missing_creds():
+def test_zotero_verify_missing_creds(monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "ZOTERO_API_KEY", None)
+    monkeypatch.setattr(settings, "ZOTERO_USER_ID", None)
     response = client.get("/api/zotero/verify")
     assert response.status_code == 200
     data = response.json()
     assert data["connected"] is False
     assert "Credentials missing" in data["message"]
+
+def test_zotero_default_credentials():
+    from app.config import get_credentials
+    creds = get_credentials()
+    assert creds["zotero_key"] == "qoszWMinOK1os3M4T9OTQLbH"
+    assert creds["zotero_user_id"] == "5425893"
 
 def test_review_paper_missing_gemini_key():
     response = client.post(

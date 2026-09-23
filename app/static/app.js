@@ -4,6 +4,9 @@ if (savedModel === 'gemini-2.5-flash' || savedModel === 'gemini-3.6-pro') {
   localStorage.setItem('zg_gemini_model', savedModel);
 }
 
+const DEFAULT_ZOTERO_KEY = 'qoszWMinOK1os3M4T9OTQLbH';
+const DEFAULT_ZOTERO_USER_ID = '5425893';
+
 let appState = {
   activeTab: 'deep-dive',
   collections: [],
@@ -22,8 +25,8 @@ let appState = {
     geminiKey: localStorage.getItem('zg_gemini_key') || '',
     geminiModel: savedModel || 'gemini-3.6-flash',
     geminiBaseUrl: localStorage.getItem('zg_gemini_base_url') || '',
-    zoteroKey: localStorage.getItem('zg_zotero_key') || '',
-    zoteroUserId: localStorage.getItem('zg_zotero_user_id') || '',
+    zoteroKey: localStorage.getItem('zg_zotero_key') || DEFAULT_ZOTERO_KEY,
+    zoteroUserId: localStorage.getItem('zg_zotero_user_id') || DEFAULT_ZOTERO_USER_ID,
     zoteroLibType: localStorage.getItem('zg_zotero_lib_type') || 'user'
   }
 };
@@ -70,6 +73,15 @@ async function initApp() {
 }
 
 async function checkHealthAndCredentials() {
+  if (!localStorage.getItem('zg_zotero_key') || localStorage.getItem('zg_zotero_key') === 'undefined') {
+    localStorage.setItem('zg_zotero_key', DEFAULT_ZOTERO_KEY);
+    appState.credentials.zoteroKey = DEFAULT_ZOTERO_KEY;
+  }
+  if (!localStorage.getItem('zg_zotero_user_id') || localStorage.getItem('zg_zotero_user_id') === 'undefined') {
+    localStorage.setItem('zg_zotero_user_id', DEFAULT_ZOTERO_USER_ID);
+    appState.credentials.zoteroUserId = DEFAULT_ZOTERO_USER_ID;
+  }
+
   const geminiBadge = document.getElementById('gemini-status');
   const zoteroBadge = document.getElementById('zotero-status');
 

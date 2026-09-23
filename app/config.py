@@ -14,8 +14,8 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "gemini-3.6-flash"
     GEMINI_BASE_URL: Optional[str] = None
     
-    ZOTERO_API_KEY: Optional[str] = None
-    ZOTERO_USER_ID: Optional[str] = None
+    ZOTERO_API_KEY: Optional[str] = "qoszWMinOK1os3M4T9OTQLbH"
+    ZOTERO_USER_ID: Optional[str] = "5425893"
     ZOTERO_LIBRARY_TYPE: str = "user"  # 'user' or 'group'
     
     HOST: str = "127.0.0.1"
