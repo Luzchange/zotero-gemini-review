@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GResearch | AI Literature Review Studio</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <style>
+    .prose table { width: 100%; border-collapse: collapse; margin-top: 1rem; margin-bottom: 1rem; }
+    .prose th, .prose td { border: 1px solid #cbd5e1; padding: 0.6rem 0.8rem; text-align: left; }
+    .prose th { background-color: #f1f5f9; font-weight: 600; }
+    .prose blockquote { border-left: 4px solid #3b82f6; padding-left: 1rem; font-style: italic; color: #475569; margin: 1rem 0; }
+    .prose h1, .prose h2, .prose h3 { font-weight: 700; color: #0f172a; margin-top: 1.5rem; margin-bottom: 0.5rem; }
+    .prose h1 { font-size: 1.5rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.3rem; }
+    .prose h2 { font-size: 1.25rem; }
+    .prose h3 { font-size: 1.1rem; }
+    .prose ul { list-style-type: disc; padding-left: 1.5rem; margin: 0.75rem 0; }
+    .prose ol { list-style-type: decimal; padding-left: 1.5rem; margin: 0.75rem 0; }
+    .prose p { margin: 0.6rem 0; line-height: 1.6; }
+    .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+    .scrollbar-thin::-webkit-scrollbar-track { background: #f1f5f9; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col font-sans">
+
+  <!-- Top Navigation Bar -->
+  <header class="bg-white border-b border-slate-200 px-6 py-3.5 sticky top-0 z-30 shadow-sm">
+    <div class="max-w-7xl mx-auto flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white text-xl shadow">
+          <i class="fa-solid fa-graduation-cap"></i>
+        </div>
+        <div>
+          <h1 class="text-lg font-bold text-slate-900 leading-tight">GResearch</h1>
+          <p class="text-xs text-slate-500">AI Literature Review & Research Studio for Zotero</p>
+        </div>
+      </div>
+
+      <div class="flex items-center space-x-4">
+        <!-- Status Badges -->
+        <div id="gemini-status" class="flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
+          <i class="fa-solid fa-circle text-[8px] text-amber-500 animate-pulse"></i>
+          <span>Gemini: Checking...</span>
+        </div>
+        <div id="zotero-status" class="flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
+          <i class="fa-solid fa-circle text-[8px] text-amber-500 animate-pulse"></i>
+          <span>Zotero: Checking...</span>
+        </div>
+        
+        <button onclick="toggleSettingsModal()" class="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md border border-slate-300 transition flex items-center space-x-1.5">
+          <i class="fa-solid fa-gear"></i>
+          <span>API Settings</span>
+        </button>
+
+        <a href="/docs" target="_blank" class="px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md border border-blue-200 transition flex items-center space-x-1">
+          <i class="fa-solid fa-code"></i>
+          <span>API Docs</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="max-w-7xl mx-auto w-full flex-1 px-6 py-6 grid grid-cols-12 gap-6">
+
+    <!-- Left Column: Zotero Library Explorer (5 cols) -->
+    <section class="col-span-12 lg:col-span-5 flex flex-col space-y-4">
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-col h-[calc(100vh-140px)]">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+          <div class="flex items-center space-x-2">
+            <i class="fa-solid fa-folder-tree text-indigo-600"></i>
+            <h2 class="font-semibold text-slate-800 text-sm">Zotero Library</h2>
+          </div>
+          <button onclick="refreshLibrary()" title="Refresh library" class="text-slate-400 hover:text-slate-600 text-xs px-2 py-1 rounded hover:bg-slate-100">
+            <i class="fa-solid fa-rotate-right"></i>
+          </button>
+        </div>
+
+        <!-- Collection Selector -->
+        <div class="mt-3">
+          <label class="block text-xs font-medium text-slate-600 mb-1">Collection / Folder</label>
+          <select id="collection-select" onchange="onCollectionChange()" class="w-full text-xs bg-slate-50 border border-slate-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            <option value="">📁 All Items (Entire Library)</option>
+          </select>
+        </div>
+
+        <!-- Search Filter -->
+        <div class="mt-2.5 relative">
+          <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-slate-400 text-xs"></i>
+          <input type="text" id="paper-search" oninput="debounceSearch()" placeholder="Filter by title, author, or keyword..." class="w-full text-xs pl-8 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none">
+        </div>
+
+        <!-- Selection Controls -->
+        <div class="flex items-center justify-between text-xs text-slate-500 py-2 border-b border-slate-100 mt-1">
+          <div class="flex items-center space-x-2">
+            <input type="checkbox" id="select-all-checkbox" onchange="toggleSelectAll(this.checked)" class="rounded text-blue-600 focus:ring-blue-500 h-3.5 w-3.5">
+            <label for="select-all-checkbox" class="cursor-pointer">Select All Visible</label>
+          </div>
+          <span id="selected-count-badge" class="font-medium text-blue-600">0 selected</span>
+        </div>
+
+        <!-- Paper List -->
+        <div id="paper-list-container" class="flex-1 overflow-y-auto scrollbar-thin mt-2 divide-y divide-slate-100">
+          <div id="paper-loading" class="text-center py-12 text-slate-400 text-xs">
+            <i class="fa-solid fa-circle-notch fa-spin text-xl text-blue-500 mb-2"></i>
+            <p>Loading papers from Zotero...</p>
+          </div>
+          <div id="paper-list" class="space-y-1"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Column: Literature Review Studio (7 cols) -->
+    <section class="col-span-12 lg:col-span-7 flex flex-col space-y-4">
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col h-[calc(100vh-140px)]">
+        
+        <!-- Workflow Tabs -->
+        <div class="flex items-center space-x-2 border-b border-slate-200 pb-3">
+          <button id="tab-deep-dive" onclick="switchTab('deep-dive')" class="tab-btn px-3 py-1.5 text-xs font-semibold rounded-md bg-blue-600 text-white transition shadow-sm">
+            <i class="fa-regular fa-file-lines mr-1.5"></i> Single Paper Deep Dive
+          </button>
+          <button id="tab-synthesis" onclick="switchTab('synthesis')" class="tab-btn px-3 py-1.5 text-xs font-medium rounded-md text-slate-600 hover:bg-slate-100 transition">
+            <i class="fa-solid fa-layer-group mr-1.5"></i> Thematic Synthesis
+          </button>
+          <button id="tab-gaps" onclick="switchTab('gaps')" class="tab-btn px-3 py-1.5 text-xs font-medium rounded-md text-slate-600 hover:bg-slate-100 transition">
+            <i class="fa-solid fa-lightbulb mr-1.5"></i> Research Gap Finder
+          </button>
+          <button id="tab-chat" onclick="switchTab('chat')" class="tab-btn px-3 py-1.5 text-xs font-medium rounded-md text-slate-600 hover:bg-slate-100 transition">
+            <i class="fa-regular fa-comments mr-1.5"></i> Library Chat
+          </button>
+          <button id="tab-work-docs" onclick="switchTab('work-docs')" class="tab-btn px-3 py-1.5 text-xs font-medium rounded-md text-slate-600 hover:bg-slate-100 transition">
+            <i class="fa-solid fa-file-shield mr-1.5"></i> Work Documents
+          </button>
+        </div>
+
+        <!-- Action & Option Controls -->
+        <div class="py-3 border-b border-slate-100">
+          
+          <!-- Mode 1: Single Paper Deep Dive Controls -->
+          <div id="panel-deep-dive" class="mode-panel space-y-2">
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-slate-600">Selected Target Paper:</span>
+              <span id="single-paper-name" class="font-medium text-slate-900 truncate max-w-xs italic">Select a paper from the left panel</span>
+            </div>
+            <div class="flex items-center space-x-2">
+              <input type="text" id="single-focus-input" placeholder="Optional analytical focus (e.g., critique validity threats, extract formulas, etc.)..." class="flex-1 text-xs px-3 py-2 bg-slate-50 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none">
+              <label class="flex items-center space-x-1 text-xs text-slate-600 whitespace-nowrap cursor-pointer">
+                <input type="checkbox" id="include-pdf-checkbox" checked class="rounded text-blue-600 h-3.5 w-3.5">
+                <span>Read Full PDF</span>
+              </label>
+              <button onclick="runSinglePaperReview()" id="btn-run-single" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs rounded-md shadow-sm transition flex items-center space-x-1.5">
+                <i class="fa-solid fa-wand-magic-sparkles"></i>
+                <span>Critique Paper</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Mode 2: Thematic Synthesis Controls -->
+          <div id="panel-synthesis" class="mode-panel hidden space-y-2">
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-slate-600">Synthesizing:</span>
+              <span id="synthesis-selection-info" class="font-medium text-indigo-600">0 selected papers</span>
+            </div>
+            <div class="flex items-center space-x-2">
+              <input type="text" id="synthesis-theme-input" placeholder="Specific theme or research question (e.g., 'Impact of self-attention on retrieval models')..." class="flex-1 text-xs px-3 py-2 bg-slate-50 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none">
+              <button onclick="runCollectionSynthesis()" id="btn-run-synthesis" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-xs rounded-md shadow-sm transition flex items-center space-x-1.5">
+                <i class="fa-solid fa-network-wired"></i>
+                <span>Synthesize Papers</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Mode 3: Research Gaps Controls -->
+          <div id="panel-gaps" class="mode-panel hidden space-y-2">
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-slate-600">Gap Exploration Scope:</span>
+              <span id="gaps-selection-info" class="font-medium text-amber-600">0 selected papers</span>
+            </div>
+            <div class="flex items-center space-x-2">
+              <input type="text" id="gaps-domain-input" placeholder="Target domain or subfield (e.g., 'Healthcare AI, clinical trials')..." class="flex-1 text-xs px-3 py-2 bg-slate-50 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none">
+              <button onclick="runGapAnalysis()" id="btn-run-gaps" class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-medium text-xs rounded-md shadow-sm transition flex items-center space-x-1.5">
+                <i class="fa-solid fa-binoculars"></i>
+                <span>Discover Gaps</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Mode 4: Chat Controls -->
+          <div id="panel-chat" class="mode-panel hidden space-y-2">
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-slate-600">Context Scope:</span>
+              <span id="chat-selection-info" class="font-medium text-emerald-600">Entire collection</span>
+            </div>
+            <div class="flex items-center space-x-2">
+              <input type="text" id="chat-query-input" onkeydown="if(event.key==='Enter') runChatQuery()" placeholder="Ask anything about these papers (e.g., 'What datasets did they evaluate on?')..." class="flex-1 text-xs px-3 py-2 bg-slate-50 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none">
+              <button onclick="runChatQuery()" id="btn-run-chat" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs rounded-md shadow-sm transition flex items-center space-x-1.5">
+                <i class="fa-solid fa-paper-plane"></i>
+                <span>Ask</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Mode 5: Work Documents Controls & Upload Zone -->
+          <div id="panel-work-docs" class="mode-panel hidden space-y-3">
+            <!-- Upload Box & Active Doc Bar -->
+            <div class="grid grid-cols-12 gap-3">
+              <!-- Drag and Drop Dropzone -->
+              <div id="doc-dropzone" onclick="document.getElementById('doc-file-input').click()" 
+                   class="col-span-12 md:col-span-6 border-2 border-dashed border-emerald-300 hover:border-emerald-500 bg-emerald-50/50 hover:bg-emerald-50 rounded-lg p-3 text-center cursor-pointer transition flex flex-col items-center justify-center space-y-1">
+                <input type="file" id="doc-file-input" accept=".pdf" class="hidden" onchange="handleDocumentFileUpload(this.files)">
+                <i class="fa-solid fa-cloud-arrow-up text-emerald-600 text-lg"></i>
+                <span class="text-xs font-semibold text-emerald-900">Drop PDF Work Document here</span>
+                <span class="text-[11px] text-emerald-700">or click to browse local files (max 50MB)</span>
+              </div>
+
+              <!-- Active Document Selector & Info -->
+              <div class="col-span-12 md:col-span-6 bg-slate-50 border border-slate-200 rounded-lg p-2.5 flex flex-col justify-between">
+                <div>
+                  <div class="flex items-center justify-between text-xs mb-1">
+                    <span class="font-medium text-slate-700">Active Document:</span>
+                    <span id="doc-session-count" class="text-[11px] text-slate-500">0 documents loaded</span>
+                  </div>
+                  <select id="active-document-select" onchange="onActiveDocumentChange()" class="w-full text-xs bg-white border border-slate-300 rounded p-1.5 focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                    <option value="">-- No documents uploaded yet --</option>
+                  </select>
+                </div>
+                <div id="active-doc-meta" class="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
+                  <span id="active-doc-pages">Pages: -</span>
+                  <span id="active-doc-size">Size: -</span>
+                  <button id="btn-delete-doc" onclick="deleteActiveDocument()" class="text-rose-500 hover:text-rose-700 hidden text-xs">
+                    <i class="fa-solid fa-trash-can mr-1"></i>Remove
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Review Profile & Options Row -->
+            <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+              <!-- Profile Selector -->
+              <div class="flex items-center space-x-1.5">
+                <label class="text-xs font-medium text-slate-700">Profile:</label>
+                <select id="doc-profile-select" class="text-xs bg-white border border-slate-300 rounded-md py-1.5 px-2 focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                  <option value="executive_bluf">🎖️ Executive Briefing (BLUF & Decisions)</option>
+                  <option value="red_team">🛡️ Red Team / Critical Vulnerabilities</option>
+                  <option value="policy_compliance">📋 Policy, Governance & Compliance</option>
+                  <option value="technical_critique">🔬 Technical & Architectural Critique</option>
+                </select>
+              </div>
+
+              <!-- Auto-import to Zotero Checkbox (CHECKED BY DEFAULT) -->
+              <label class="flex items-center space-x-1.5 text-xs text-slate-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1.5 rounded-md cursor-pointer" title="Automatically create a library item and attach this review in Zotero">
+                <input type="checkbox" id="doc-auto-zotero" checked class="rounded text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5">
+                <span class="font-medium text-emerald-900"><i class="fa-solid fa-cloud-arrow-down mr-1"></i>Import to Zotero by Default</span>
+              </label>
+
+              <!-- Optional Custom Focus -->
+              <input type="text" id="doc-custom-focus" placeholder="Optional focus (e.g. budget impact, cyber compliance)..." class="flex-1 min-w-[160px] text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-md focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+
+              <!-- Action Button -->
+              <button onclick="runWorkDocumentReview()" id="btn-run-doc-review" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs rounded-md shadow-sm transition flex items-center space-x-1.5">
+                <i class="fa-solid fa-file-circle-check"></i>
+                <span>Review Document</span>
+              </button>
+            </div>
+
+            <!-- Grounded Q&A against Document -->
+            <div class="flex items-center space-x-2 pt-1 border-t border-slate-100">
+              <input type="text" id="doc-chat-query" onkeydown="if(event.key==='Enter') runWorkDocChat()" placeholder="Ask specific questions about this document (e.g. 'What budget figures are cited in section 2?')..." class="flex-1 text-xs px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-md focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+              <button onclick="runWorkDocChat()" id="btn-doc-chat" class="px-3.5 py-1.5 bg-slate-700 hover:bg-slate-800 text-white font-medium text-xs rounded-md shadow-sm transition flex items-center space-x-1">
+                <i class="fa-regular fa-comment-dots"></i>
+                <span>Ask Document</span>
+              </button>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Review Output & Actions Header -->
+        <div class="flex items-center justify-between py-2">
+          <div class="flex items-center space-x-2">
+            <span class="text-xs font-semibold text-slate-700">Generated Review & Findings</span>
+            <span id="loading-spinner" class="hidden text-xs text-blue-600"><i class="fa-solid fa-circle-notch fa-spin mr-1"></i> Gemini is thinking...</span>
+            <span id="doc-sync-badge" class="hidden text-[11px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full flex items-center space-x-1">
+              <i class="fa-solid fa-check"></i>
+              <span id="doc-sync-text">Saved to Zotero</span>
+            </span>
+          </div>
+
+          <div class="flex items-center space-x-2">
+            <button onclick="copyOutputMarkdown()" title="Copy Markdown" class="px-2.5 py-1 text-xs text-slate-600 bg-slate-100 hover:bg-slate-200 rounded border border-slate-200 transition">
+              <i class="fa-regular fa-copy mr-1"></i> Copy
+            </button>
+            <button onclick="downloadOutputMarkdown()" title="Download as .md file" class="px-2.5 py-1 text-xs text-slate-600 bg-slate-100 hover:bg-slate-200 rounded border border-slate-200 transition">
+              <i class="fa-solid fa-download mr-1"></i> Download
+            </button>
+            <button id="save-to-zotero-btn" onclick="saveActiveReviewToZotero()" title="Push as item / child note to Zotero" class="px-2.5 py-1 text-xs text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded border border-indigo-200 transition font-medium flex items-center space-x-1">
+              <i class="fa-solid fa-cloud-arrow-up"></i>
+              <span>Save to Zotero</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Markdown Output Container -->
+        <div id="output-container" class="flex-1 overflow-y-auto scrollbar-thin bg-slate-50/50 rounded-lg p-5 border border-slate-200">
+          <div id="output-placeholder" class="h-full flex flex-col items-center justify-center text-slate-400 text-center py-16">
+            <div class="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 text-xl mb-3">
+              <i class="fa-solid fa-book-open"></i>
+            </div>
+            <p class="text-sm font-medium text-slate-600">No review generated yet</p>
+            <p class="text-xs text-slate-400 max-w-sm mt-1">Select a paper or multiple papers on the left, then click <strong>Critique Paper</strong> or <strong>Synthesize Papers</strong>.</p>
+          </div>
+          <div id="output-content" class="prose max-w-none text-slate-800 hidden"></div>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Settings Modal -->
+  <div id="settings-modal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl max-w-md w-full shadow-2xl border border-slate-200 p-6 space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+        <h3 class="font-bold text-slate-900 text-sm flex items-center space-x-2">
+          <i class="fa-solid fa-sliders text-blue-600"></i>
+          <span>API Credentials & Settings</span>
+        </h3>
+        <button onclick="toggleSettingsModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block font-medium text-slate-700 mb-1">API Key / Token</label>
+          <input type="password" id="modal-gemini-key" placeholder="AIzaSy... or STARK_..." class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
+          <p class="text-[10px] text-slate-500 mt-0.5">Google AI Studio key (<code class="text-blue-600">AIzaSy...</code>) or GenAI.mil token (<code class="text-blue-600">STARK_...</code>).</p>
+        </div>
+
+        <div>
+          <label class="block font-medium text-slate-700 mb-1">API Endpoint / Base URL <span class="text-slate-400 font-normal">(Optional)</span></label>
+          <input type="text" id="modal-gemini-base-url" placeholder="https://api.genai.mil/v1 (or leave blank for Google AI Studio)" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
+          <p class="text-[10px] text-slate-500 mt-0.5">Use <code class="text-blue-600">https://api.genai.mil/v1</code> for GenAI.mil, or leave empty for standard Google AI Studio.</p>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <label class="block font-medium text-slate-700">Model</label>
+            <button type="button" onclick="fetchAvailableModels()" id="btn-refresh-models" class="text-[10px] text-blue-600 hover:text-blue-800 font-normal flex items-center space-x-1 cursor-pointer">
+              <i class="fa-solid fa-arrows-rotate"></i>
+              <span>Refresh Models from API</span>
+            </button>
+          </div>
+          <select id="modal-gemini-model" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            <option value="gemini-3.6-flash">gemini-3.6-flash (Latest & Recommended by Google)</option>
+            <option value="gemini-2.0-flash">gemini-2.0-flash (General Purpose)</option>
+            <option value="gemini-2.0-flash-lite">gemini-2.0-flash-lite (Fast & Light)</option>
+            <option value="gemini-1.5-flash">gemini-1.5-flash (High Rate Limit)</option>
+            <option value="gemini-1.5-pro">gemini-1.5-pro (Long Context Literature)</option>
+            <option value="gemini-2.5-flash">gemini-2.5-flash (GenAI.mil / Legacy)</option>
+            <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+            <option value="custom">-- Custom Model Name --</option>
+          </select>
+          <input type="text" id="modal-gemini-model-custom" placeholder="e.g. gemini-3.6-flash" class="hidden mt-1.5 w-full p-2 border border-blue-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none bg-blue-50/30 text-xs">
+          <p class="text-[10px] text-slate-500 mt-0.5">Use <code class="text-blue-600 font-semibold">gemini-3.6-flash</code> for standard Google AI Studio, or click "Refresh Models" to pull active models.</p>
+        </div>
+
+        <hr class="border-slate-100">
+
+        <div>
+          <label class="block font-medium text-slate-700 mb-1">Zotero User ID</label>
+          <input type="text" id="modal-zotero-user-id" placeholder="e.g. 12345678" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
+          <p class="text-[10px] text-slate-500 mt-0.5">Found at <a href="https://www.zotero.org/settings/keys" target="_blank" class="text-blue-600 underline">zotero.org/settings/keys</a> (shown as 'Your userID for use in API calls is ...').</p>
+        </div>
+
+        <div>
+          <label class="block font-medium text-slate-700 mb-1">Zotero API Key</label>
+          <input type="password" id="modal-zotero-key" placeholder="Zotero API Key" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
+          <p class="text-[10px] text-slate-500 mt-0.5">Create key with Library Read/Write and Notes permissions.</p>
+        </div>
+
+        <div>
+          <label class="block font-medium text-slate-700 mb-1">Library Type</label>
+          <select id="modal-zotero-lib-type" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            <option value="user">User Library</option>
+            <option value="group">Group Library</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100">
+        <button onclick="toggleSettingsModal()" class="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded">Cancel</button>
+        <button onclick="saveSettingsFromModal()" class="px-4 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded shadow-sm">Save & Re-test</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
