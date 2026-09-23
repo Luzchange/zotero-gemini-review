@@ -87,4 +87,34 @@ def test_gemini_service_default_model():
     service = GeminiService(api_key="fake_key")
     assert service.model == "gemini-3.6-flash"
 
+@pytest.mark.asyncio
+async def test_gemini_service_503_fallback(monkeypatch):
+    service = GeminiService(api_key="fake_key")
+
+    calls = []
+    class MockGenerated:
+        text = "Fallback Success Review"
+
+    def mock_generate_content(model, contents, config):
+        calls.append(model)
+        if model == "gemini-3.6-flash":
+            raise Exception("503 UNAVAILABLE. This model is currently experiencing high demand.")
+        return MockGenerated()
+
+    class MockClient:
+        class models:
+            generate_content = staticmethod(mock_generate_content)
+
+    monkeypatch.setattr(service, "_get_client", lambda: MockClient())
+
+    result = await service._generate_gemini_content(
+        model="gemini-3.6-flash",
+        contents=["test prompt"],
+        config={}
+    )
+    assert result == "Fallback Success Review"
+    assert "gemini-3.6-flash" in calls
+    assert "gemini-2.0-flash" in calls
+
+
 

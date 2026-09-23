@@ -4,6 +4,7 @@ import io
 from typing import List, Dict, Any, Optional
 import httpx
 import markdown
+import asyncio
 from fastapi import HTTPException
 
 from app.schemas.schemas import (
@@ -137,6 +138,58 @@ class GeminiService:
             logger.warning(f"Failed to list models from Gemini API: {e}")
             raise HTTPException(status_code=502, detail=f"Failed to fetch model list from Gemini: {str(e)}")
 
+    async def _generate_gemini_content(
+        self,
+        model: str,
+        contents: List[Any],
+        config: Dict[str, Any]
+    ) -> str:
+        """Call client.models.generate_content with retry logic and fallback for 503 high demand spikes."""
+        client = self._get_client()
+
+        # Fallback cascade if primary model hits 503 high demand
+        models_to_try = [model]
+        for fallback in ("gemini-2.0-flash", "gemini-1.5-flash"):
+            if fallback not in models_to_try:
+                models_to_try.append(fallback)
+
+        last_error = None
+        for candidate_model in models_to_try:
+            for attempt in range(2):
+                try:
+                    logger.info(f"Generating content with model: {candidate_model} (attempt {attempt + 1})")
+                    response = client.models.generate_content(
+                        model=candidate_model,
+                        contents=contents,
+                        config=config
+                    )
+                    return response.text or "No response generated."
+                except Exception as e:
+                    last_error = e
+                    err_str = str(e)
+                    is_transient = (
+                        "503" in err_str or 
+                        "429" in err_str or 
+                        "high demand" in err_str.lower() or 
+                        "unavailable" in err_str.lower() or
+                        "resourceexhausted" in err_str.lower()
+                    )
+                    if is_transient:
+                        logger.warning(f"Model {candidate_model} busy/high demand ({e}), retrying in {attempt + 1.5}s...")
+                        await asyncio.sleep(attempt + 1.5)
+                        continue
+                    else:
+                        # Non-transient error (e.g. 400 invalid argument or 404 not found)
+                        break
+
+            logger.warning(f"Model {candidate_model} busy or unavailable, attempting fallback model if available...")
+
+        logger.error(f"Gemini API generation failed after retries/fallbacks: {last_error}")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Gemini API generation failed: {str(last_error)}. If you are seeing 503 High Demand, try selecting gemini-2.0-flash or gemini-1.5-flash in Settings."
+        )
+
     def _build_paper_summary_text(self, paper: PaperItem) -> str:
         """Format paper metadata and abstract into clean textual context."""
         authors = ", ".join(paper.creators) if paper.creators else "Unknown Authors"
@@ -238,19 +291,14 @@ Respond in rich, professional Markdown with clear headings.
                 )
             contents.append(user_prompt)
 
-            try:
-                response = client.models.generate_content(
-                    model=active_model,
-                    contents=contents,
-                    config={
-                        "system_instruction": system_instruction,
-                        "temperature": 0.2,
-                    }
-                )
-                review_md = response.text or "No review generated."
-            except Exception as e:
-                logger.error(f"Gemini API error during single paper review: {e}")
-                raise HTTPException(status_code=502, detail=f"Gemini API generation failed: {str(e)}")
+            review_md = await self._generate_gemini_content(
+                model=active_model,
+                contents=contents,
+                config={
+                    "system_instruction": system_instruction,
+                    "temperature": 0.2,
+                }
+            )
 
         zotero_html = self._markdown_to_zotero_html(review_md, paper.title)
 
@@ -332,20 +380,14 @@ A cohesive narrative synthesizing the current state of knowledge and implication
                 temperature=0.3
             )
         else:
-            client = self._get_client()
-            try:
-                response = client.models.generate_content(
-                    model=active_model,
-                    contents=[user_prompt],
-                    config={
-                        "system_instruction": system_instruction,
-                        "temperature": 0.3,
-                    }
-                )
-                synthesis_md = response.text or "No synthesis generated."
-            except Exception as e:
-                logger.error(f"Gemini API error during synthesis: {e}")
-                raise HTTPException(status_code=502, detail=f"Gemini API synthesis failed: {str(e)}")
+            synthesis_md = await self._generate_gemini_content(
+                model=active_model,
+                contents=[user_prompt],
+                config={
+                    "system_instruction": system_instruction,
+                    "temperature": 0.3,
+                }
+            )
 
         zotero_html = self._markdown_to_zotero_html(synthesis_md, f"Synthesis ({len(papers)} papers)")
 
@@ -412,20 +454,14 @@ Please structure your response in Markdown with:
                 temperature=0.4
             )
         else:
-            client = self._get_client()
-            try:
-                response = client.models.generate_content(
-                    model=active_model,
-                    contents=[user_prompt],
-                    config={
-                        "system_instruction": system_instruction,
-                        "temperature": 0.4,
-                    }
-                )
-                gaps_md = response.text or "No gap analysis generated."
-            except Exception as e:
-                logger.error(f"Gemini API error during gap analysis: {e}")
-                raise HTTPException(status_code=502, detail=f"Gemini API gap analysis failed: {str(e)}")
+            gaps_md = await self._generate_gemini_content(
+                model=active_model,
+                contents=[user_prompt],
+                config={
+                    "system_instruction": system_instruction,
+                    "temperature": 0.4,
+                }
+            )
 
         zotero_html = self._markdown_to_zotero_html(gaps_md, f"Research Gaps Analysis ({len(papers)} papers)")
 
@@ -472,19 +508,13 @@ Instructions:
                 temperature=0.2
             )
         else:
-            client = self._get_client()
-            try:
-                response = client.models.generate_content(
-                    model=active_model,
-                    contents=[prompt],
-                    config={
-                        "temperature": 0.2,
-                    }
-                )
-                answer = response.text or "No response generated."
-            except Exception as e:
-                logger.error(f"Gemini API error during literature chat: {e}")
-                raise HTTPException(status_code=502, detail=f"Gemini API chat failed: {str(e)}")
+            answer = await self._generate_gemini_content(
+                model=active_model,
+                contents=[prompt],
+                config={
+                    "temperature": 0.2,
+                }
+            )
 
         # Find cited papers by key
         cited_keys = [p.key for p in papers if p.key.lower() in answer.lower() or any(c.split()[0].lower() in answer.lower() for c in p.creators if c)]
