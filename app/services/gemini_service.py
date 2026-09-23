@@ -65,15 +65,26 @@ class GeminiService:
             async with httpx.AsyncClient(timeout=120.0) as client:
                 resp = await client.post(endpoint, headers=headers, json=payload)
                 if resp.is_error:
-                    error_detail = resp.text
-                    try:
-                        err_json = resp.json()
-                        error_detail = err_json.get("error", {}).get("message") or err_json.get("detail") or resp.text
-                    except Exception:
-                        pass
+                    if "outside of DoW networks" in resp.text or "Unauthorized Access - GenAI.mil" in resp.text:
+                        error_detail = (
+                            "GenAI.mil Network Firewall Block: "
+                            "GenAI.mil can only be accessed from inside DoD/DoW networks. "
+                            "Please connect to your military/command VPN (e.g. GlobalProtect) to use this token, "
+                            "or switch to a standard Google AI Studio key if working off-network."
+                        )
+                    else:
+                        try:
+                            err_json = resp.json()
+                            error_detail = err_json.get("error", {}).get("message") or err_json.get("detail") or resp.text
+                        except Exception:
+                            if "<html" in resp.text.lower():
+                                error_detail = f"Endpoint returned an HTML page instead of JSON (HTTP {resp.status_code})"
+                            else:
+                                error_detail = resp.text
+
                     raise HTTPException(
                         status_code=resp.status_code if resp.status_code >= 400 else 502,
-                        detail=f"GenAI Endpoint error ({resp.status_code}): {error_detail}"
+                        detail=error_detail
                     )
                 data = resp.json()
                 choices = data.get("choices", [])
