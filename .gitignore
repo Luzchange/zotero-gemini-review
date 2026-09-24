@@ -7,3 +7,6 @@ __pycache__/
 scratch/
 dist/
 build/
+*client_secret*.json
+CLIENT_SECRET.json
+application_default_credentials.json
