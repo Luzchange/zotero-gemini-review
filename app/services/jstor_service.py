@@ -31,6 +31,13 @@ class JSTORService:
 
         prefix = self.proxy_prefix.strip()
 
+        # Handle direct rewritten hostname with or without protocol (e.g. https://www-jstor-org.libproxy.troy.edu/)
+        clean_prefix = prefix.rstrip("/")
+        if "www-jstor-org" in clean_prefix:
+            if not (clean_prefix.startswith("http://") or clean_prefix.startswith("https://")):
+                clean_prefix = f"https://{clean_prefix}"
+            return re.sub(r'https?://(www\.)?jstor\.org', clean_prefix, jstor_url)
+
         # Handle prefix that ends with = or /
         if prefix.endswith("=") or "login?url=" in prefix.lower():
             return f"{prefix}{jstor_url}"
@@ -46,7 +53,7 @@ class JSTORService:
         # If it's a hostname suffix like 'proxy.lib.school.edu'
         if "jstor.org" in jstor_url:
             # Replace www.jstor.org with www-jstor-org.<proxy>
-            return re.sub(r'https?://(www\.)?jstor\.org', f"https://www-jstor-org.{prefix}", jstor_url)
+            return re.sub(r'https?://(www\.)?jstor\.org', f"https://www-jstor-org.{prefix.lstrip('.')}", jstor_url)
 
         return jstor_url
 

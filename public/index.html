@@ -313,24 +313,63 @@
             </div>
 
             <!-- JSTOR Institutional Access Banner -->
-            <div id="jstor-proxy-banner" class="hidden text-xs bg-amber-50 border border-amber-200 rounded-md p-2.5 flex items-center justify-between">
-              <div class="flex items-center space-x-2 text-amber-900">
-                <i class="fa-solid fa-graduation-cap text-amber-600 text-sm"></i>
-                <span><strong>JSTOR School Access:</strong> Articles will route through your configured university proxy for full-text access.</span>
+            <div id="jstor-proxy-banner" class="hidden text-xs bg-amber-50 border border-amber-200 rounded-md p-2.5 space-y-2">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-2 text-amber-900">
+                  <i class="fa-solid fa-graduation-cap text-amber-600 text-sm"></i>
+                  <span><strong>Troy University Proxy Active:</strong> Articles route via <code class="font-mono text-[10px] bg-amber-100/70 px-1 py-0.5 rounded text-amber-900">libproxy.troy.edu</code>.</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                  <a href="https://www-jstor-org.libproxy.troy.edu/" target="_blank" class="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-medium text-[11px] rounded flex items-center space-x-1 shadow-xs">
+                    <i class="fa-solid fa-arrow-up-right-from-square"></i>
+                    <span>Open Troy JSTOR ↗</span>
+                  </a>
+                  <button onclick="toggleSettingsModal()" class="text-[11px] text-amber-800 underline hover:text-amber-950 font-medium cursor-pointer">Edit Proxy</button>
+                </div>
               </div>
-              <div class="flex items-center space-x-2">
-                <a href="https://www.jstor.org/institutionSearch" target="_blank" class="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-medium text-[11px] rounded flex items-center space-x-1 shadow-xs">
-                  <i class="fa-solid fa-arrow-up-right-from-square"></i>
-                  <span>Log in with School on JSTOR ↗</span>
-                </a>
-                <button onclick="toggleSettingsModal()" class="text-[11px] text-amber-800 underline hover:text-amber-950 font-medium cursor-pointer">Configure Proxy</button>
+              <!-- One-Click Troy University Credentials Copy Helper -->
+              <div class="flex items-center space-x-2 text-[11px] bg-amber-100/50 p-1.5 rounded border border-amber-200/60 text-amber-900">
+                <span class="font-semibold text-amber-950 flex items-center space-x-1">
+                  <i class="fa-solid fa-key text-[10px] text-amber-700"></i>
+                  <span>Troy Login:</span>
+                </span>
+                <span class="font-mono text-slate-800 bg-white px-1.5 py-0.5 rounded border border-amber-200">User: <strong id="banner-school-user">mgakuria</strong></span>
+                <button type="button" onclick="copyToClipboard(appState.credentials.schoolUsername || 'mgakuria', 'Troy Username')" class="px-2 py-0.5 bg-amber-200/80 hover:bg-amber-300 rounded font-medium text-[10px] transition cursor-pointer">
+                  <i class="fa-regular fa-copy mr-0.5"></i>Copy User
+                </button>
+                <span class="font-mono text-slate-800 bg-white px-1.5 py-0.5 rounded border border-amber-200">Pass: ••••••••</span>
+                <button type="button" onclick="copyToClipboard(appState.credentials.schoolPassword || 'JOYngami28!!', 'Troy Password')" class="px-2 py-0.5 bg-amber-200/80 hover:bg-amber-300 rounded font-medium text-[10px] transition cursor-pointer">
+                  <i class="fa-regular fa-copy mr-0.5"></i>Copy Pass
+                </button>
+                <span class="text-[10px] text-amber-700 ml-auto italic">Click to copy credentials for EZProxy login prompt</span>
               </div>
             </div>
 
-            <!-- Results status bar -->
-            <div id="lit-results-status" class="hidden flex items-center justify-between text-xs text-slate-600 py-1 border-b border-slate-100">
-              <span id="lit-results-count" class="font-medium text-slate-800">Showing 0 results</span>
-              <span class="text-slate-400 italic">Click "Review" to analyze with Gemini or "Import" to save to Zotero</span>
+            <!-- Review Engine Quick Selector & Results status bar -->
+            <div id="lit-results-status" class="hidden flex flex-wrap items-center justify-between text-xs text-slate-600 py-1.5 border-b border-slate-100 gap-2">
+              <div class="flex items-center space-x-2">
+                <span id="lit-results-count" class="font-medium text-slate-800">Showing 0 results</span>
+                <span class="text-slate-300">|</span>
+                <!-- Multi-Engine Review Selector -->
+                <div class="inline-flex items-center space-x-1 text-[11px]">
+                  <span class="font-medium text-slate-600">Review Engine:</span>
+                  <div class="inline-flex rounded-md p-0.5 bg-slate-100 border border-slate-200 shadow-xs">
+                    <button type="button" id="lit-engine-vertex" onclick="setLiteratureReviewEngine('vertex')" class="px-2 py-0.5 rounded text-[11px] font-medium transition cursor-pointer flex items-center space-x-1 text-slate-600 hover:text-slate-900">
+                      <i class="fa-solid fa-cloud text-blue-600 text-[10px]"></i>
+                      <span>Vertex AI</span>
+                    </button>
+                    <button type="button" id="lit-engine-genaimil" onclick="setLiteratureReviewEngine('genaimil')" class="px-2 py-0.5 rounded text-[11px] font-medium transition cursor-pointer flex items-center space-x-1 text-slate-600 hover:text-slate-900">
+                      <i class="fa-solid fa-shield text-emerald-600 text-[10px]"></i>
+                      <span>GenAI.mil</span>
+                    </button>
+                    <button type="button" id="lit-engine-aistudio" onclick="setLiteratureReviewEngine('aistudio')" class="px-2 py-0.5 rounded text-[11px] font-medium transition cursor-pointer flex items-center space-x-1 text-slate-600 hover:text-slate-900">
+                      <i class="fa-solid fa-key text-amber-600 text-[10px]"></i>
+                      <span>AI Studio</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <span class="text-slate-400 italic text-[11px]">Reviews automatically file into <strong class="text-indigo-600">GResearch</strong> collection</span>
             </div>
 
             <!-- Results container -->
@@ -429,13 +468,35 @@
 
           <div>
             <label class="block font-medium text-slate-700 mb-1">GCP / CloudLab Project ID <span class="text-rose-500">*</span></label>
-            <input type="text" id="modal-gcp-project-id" placeholder="e.g. afrl-sandbox-proj-12345" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white">
+            <input type="text" id="modal-gcp-project-id" placeholder="e.g. afrl-il4-rch-usafsamoe-aewa" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white">
             <p class="text-[10px] text-slate-500 mt-0.5">Your Google Cloud / CloudLab project ID where the Vertex AI API is enabled.</p>
           </div>
 
           <div>
             <label class="block font-medium text-slate-700 mb-1">GCP Location / Region</label>
             <input type="text" id="modal-gcp-location" placeholder="us-central1" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white">
+          </div>
+
+          <!-- Upload Credentials JSON for Vercel & Instant Setup -->
+          <div class="bg-blue-100/40 p-2.5 rounded border border-blue-200/80 space-y-1.5">
+            <label class="block font-semibold text-slate-800 text-[11px] flex items-center justify-between">
+              <span class="flex items-center space-x-1">
+                <i class="fa-solid fa-file-arrow-up text-blue-600"></i>
+                <span>OAuth / ADC Credentials JSON File</span>
+              </span>
+              <span class="text-blue-700 font-normal text-[10px]">Instant Local & Vercel Setup</span>
+            </label>
+            <div class="flex items-center space-x-2">
+              <label for="modal-gcp-file-input" class="cursor-pointer px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 rounded text-slate-700 text-xs font-medium flex items-center space-x-1.5 shadow-2xs transition">
+                <i class="fa-solid fa-folder-open text-blue-600 text-[11px]"></i>
+                <span id="gcp-file-status-label">Choose CLIENT_SECRET.json...</span>
+              </label>
+              <input type="file" id="modal-gcp-file-input" accept=".json,application/json" class="hidden" onchange="handleGcpCredentialsUpload(event)">
+              <button type="button" id="btn-clear-gcp-json" onclick="clearGcpCredentialsJson()" class="hidden px-2 py-1 text-[11px] text-rose-600 hover:text-rose-800 transition" title="Remove loaded credentials JSON">
+                <i class="fa-solid fa-trash-can mr-1"></i>Clear
+              </button>
+            </div>
+            <p id="gcp-json-summary" class="text-[10px] text-slate-500">Upload your downloaded OAuth client secret or ADC JSON. Stored securely in your browser and used automatically.</p>
           </div>
 
           <!-- Quick Terminal Commands Guide -->
@@ -446,10 +507,21 @@
             </div>
             <ol class="list-decimal pl-4 space-y-1 text-[10px] font-mono text-slate-600">
               <li>gcloud auth login</li>
-              <li>gcloud config set project <span id="cmd-proj-id" class="text-blue-700 font-bold">&lt;PROJECT_ID&gt;</span></li>
+              <li>gcloud config set project <span id="cmd-proj-id" class="text-blue-700 font-bold">afrl-il4-rch-usafsamoe-aewa</span></li>
               <li>gcloud auth application-default login --client-id-file=CLIENT_SECRET.json --scopes="https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/generative-language.retriever"</li>
             </ol>
             <p class="text-[10px] text-slate-500">Run from your folder containing the downloaded OAuth <code class="bg-slate-100 px-1 py-0.5 rounded">CLIENT_SECRET.json</code>.</p>
+          </div>
+
+          <!-- Vercel Deployment Instructions -->
+          <div class="bg-indigo-50/70 p-2.5 rounded border border-indigo-200 text-[11px] space-y-1 text-indigo-950">
+            <div class="font-semibold flex items-center space-x-1">
+              <i class="fa-solid fa-cloud-arrow-up text-indigo-600 text-[11px]"></i>
+              <span>Vercel Cloud Deployment Configuration</span>
+            </div>
+            <p class="text-[10px] text-slate-600 leading-relaxed">
+              When deployed to Vercel, simply upload your credentials JSON above or add <code class="font-mono bg-indigo-100 px-1 py-0.5 rounded text-indigo-900 font-semibold">GOOGLE_APPLICATION_CREDENTIALS_JSON</code> in your <strong>Vercel Dashboard &rarr; Project Settings &rarr; Environment Variables</strong>.
+            </p>
           </div>
 
           <div class="flex items-center space-x-2 pt-1">
@@ -550,6 +622,15 @@
                 <option value="group">Group Library</option>
               </select>
             </div>
+
+            <div>
+              <label class="block font-medium text-slate-700 mb-1 flex items-center justify-between">
+                <span>Target Zotero Collection / Folder</span>
+                <span class="text-[10px] text-indigo-600 font-medium">Auto-Created if Missing</span>
+              </label>
+              <input type="text" id="modal-zotero-collection" value="GResearch" placeholder="GResearch" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white font-medium">
+              <p class="text-[10px] text-slate-500 mt-0.5">Uploaded work documents, literature reviews, and imported papers automatically file into this collection.</p>
+            </div>
           </div>
         </div>
 
@@ -572,14 +653,30 @@
 
             <div>
               <div class="flex items-center justify-between mb-1">
-                <label class="block font-medium text-slate-700">University / School Proxy Prefix <span class="text-slate-400 font-normal">(JSTOR)</span></label>
+                <label class="block font-medium text-slate-700">University / School Proxy Prefix <span class="text-slate-400 font-normal">(Troy University Default)</span></label>
                 <a href="https://www.jstor.org/institutionSearch" target="_blank" class="text-[10px] text-blue-600 hover:text-blue-800 underline font-normal flex items-center space-x-1">
                   <i class="fa-solid fa-graduation-cap"></i>
                   <span>Log in on JSTOR ↗</span>
                 </a>
               </div>
-              <input type="text" id="modal-school-proxy" placeholder="e.g. https://proxy.lib.school.edu/login?url=" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white">
-              <p class="text-[10px] text-slate-500 mt-0.5">Routes JSTOR article links through your institution's EZProxy so full texts open authenticated.</p>
+              <input type="text" id="modal-school-proxy" value="https://www-jstor-org.libproxy.troy.edu/" placeholder="https://www-jstor-org.libproxy.troy.edu/" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white font-mono text-xs">
+              <p class="text-[10px] text-slate-500 mt-0.5">Routes JSTOR article links through Troy University EZProxy so full texts open authenticated.</p>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block font-medium text-slate-700 mb-1">School Login / Username</label>
+                <input type="text" id="modal-school-username" value="mgakuria" placeholder="mgakuria" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white text-xs">
+              </div>
+              <div>
+                <label class="block font-medium text-slate-700 mb-1">School Password</label>
+                <div class="relative">
+                  <input type="password" id="modal-school-password" value="JOYngami28!!" placeholder="••••••••" class="w-full p-2 pr-7 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white text-xs">
+                  <button type="button" onclick="togglePasswordVisibility('modal-school-password', 'eye-school-pass')" class="absolute right-2 top-2.5 text-slate-400 hover:text-slate-600">
+                    <i id="eye-school-pass" class="fa-solid fa-eye text-xs"></i>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

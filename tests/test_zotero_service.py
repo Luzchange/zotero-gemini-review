@@ -52,3 +52,46 @@ async def test_create_child_note_payload(monkeypatch):
     assert post_payload[0]["parentItem"] == "ITEM123"
     assert post_payload[0]["note"] == "<p>Test note review</p>"
     assert post_payload[0]["tags"] == [{"tag": "gemini-reviewed"}]
+
+@pytest.mark.asyncio
+async def test_get_or_create_collection_existing(monkeypatch):
+    service = ZoteroService(api_key="dummy_key", user_id="12345")
+
+    async def mock_get_collections():
+        from app.schemas.schemas import CollectionItem
+        return [
+            CollectionItem(key="GRESEARCH_KEY_1", name="GResearch", num_items=5),
+            CollectionItem(key="OTHER_KEY_2", name="Biomedical", num_items=2)
+        ]
+
+    monkeypatch.setattr(service, "get_collections", mock_get_collections)
+    col_key = await service.get_or_create_collection("GResearch")
+    assert col_key == "GRESEARCH_KEY_1"
+
+@pytest.mark.asyncio
+async def test_get_or_create_collection_creates_new(monkeypatch):
+    service = ZoteroService(api_key="dummy_key", user_id="12345")
+
+    async def mock_get_collections():
+        return []
+
+    captured_post = []
+
+    class MockPostResp:
+        status_code = 200
+        def json(self):
+            return {"successful": {"0": {"key": "NEWLY_CREATED_GRESEARCH"}}}
+
+    import httpx
+    async def mock_post(url, headers=None, json=None):
+        captured_post.append({"url": url, "json": json})
+        return MockPostResp()
+
+    monkeypatch.setattr(service, "get_collections", mock_get_collections)
+    monkeypatch.setattr(httpx.AsyncClient, "post", lambda self, url, **kwargs: mock_post(url, **kwargs))
+
+    col_key = await service.get_or_create_collection("GResearch")
+    assert col_key == "NEWLY_CREATED_GRESEARCH"
+    assert len(captured_post) == 1
+    assert captured_post[0]["json"][0]["name"] == "GResearch"
+

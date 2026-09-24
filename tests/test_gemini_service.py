@@ -234,5 +234,42 @@ def test_vertex_ai_missing_adc_error(monkeypatch):
     assert exc_info.value.status_code == 401
     assert "gcloud auth application-default login" in exc_info.value.detail
 
+def test_vertex_ai_with_credentials_json(monkeypatch):
+    import json
+    from google import genai
+    from google.oauth2 import credentials as oauth2_creds
+
+    captured_kwargs = {}
+
+    class MockOAuthCreds:
+        def __init__(self, **kwargs):
+            pass
+
+    def mock_from_info(info, scopes=None):
+        return MockOAuthCreds()
+
+    class MockGenAIClient:
+        def __init__(self, **kwargs):
+            captured_kwargs.update(kwargs)
+
+    monkeypatch.setattr(oauth2_creds.Credentials, "from_authorized_user_info", mock_from_info)
+    monkeypatch.setattr(genai, "Client", MockGenAIClient)
+
+    sample_json = json.dumps({
+        "type": "authorized_user",
+        "client_id": "test-client-id.apps.googleusercontent.com",
+        "client_secret": "test-secret",
+        "refresh_token": "test-refresh-token",
+        "project_id": "afrl-il4-rch-usafsamoe-aewa"
+    })
+
+    service = GeminiService(credentials_json=sample_json)
+    service._get_client()
+
+    assert captured_kwargs.get("vertexai") is True
+    assert captured_kwargs.get("project") == "afrl-il4-rch-usafsamoe-aewa"
+    assert isinstance(captured_kwargs.get("credentials"), MockOAuthCreds)
+
+
 
 

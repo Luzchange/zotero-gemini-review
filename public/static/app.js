@@ -6,6 +6,11 @@ if (!savedModel || savedModel === 'gemini-1.5-flash' || savedModel === 'gemini-3
 
 const DEFAULT_ZOTERO_KEY = 'qoszWMinOK1os3M4T9OTQLbH';
 const DEFAULT_ZOTERO_USER_ID = '5425893';
+const DEFAULT_ZOTERO_COLLECTION = 'GResearch';
+const DEFAULT_SCHOOL_PROXY = 'https://www-jstor-org.libproxy.troy.edu/';
+const DEFAULT_SCHOOL_USER = 'mgakuria';
+const DEFAULT_SCHOOL_PASS = 'JOYngami28!!';
+const DEFAULT_GCP_PROJECT_ID = 'afrl-il4-rch-usafsamoe-aewa';
 
 let appState = {
   activeTab: 'deep-dive',
@@ -28,35 +33,44 @@ let appState = {
     useVertexAi: localStorage.getItem('zg_use_vertex_ai') !== null 
       ? localStorage.getItem('zg_use_vertex_ai') === 'true' 
       : (localStorage.getItem('zg_auth_provider') === 'vertex' || !localStorage.getItem('zg_gemini_key')),
-    gcpProjectId: localStorage.getItem('zg_gcp_project_id') || '',
+    gcpProjectId: localStorage.getItem('zg_gcp_project_id') || DEFAULT_GCP_PROJECT_ID,
     gcpLocation: localStorage.getItem('zg_gcp_location') || 'us-central1',
+    gcpCredentialsJson: localStorage.getItem('zg_gcp_credentials_json') || '',
     geminiKey: localStorage.getItem('zg_gemini_key') || '',
     geminiModel: savedModel || 'auto',
     geminiBaseUrl: localStorage.getItem('zg_gemini_base_url') || '',
     zoteroKey: localStorage.getItem('zg_zotero_key') || DEFAULT_ZOTERO_KEY,
     zoteroUserId: localStorage.getItem('zg_zotero_user_id') || DEFAULT_ZOTERO_USER_ID,
     zoteroLibType: localStorage.getItem('zg_zotero_lib_type') || 'user',
+    zoteroCollection: localStorage.getItem('zg_zotero_collection') || DEFAULT_ZOTERO_COLLECTION,
     ncbiKey: localStorage.getItem('zg_ncbi_key') || '',
-    schoolProxy: localStorage.getItem('zg_school_proxy') || ''
+    schoolProxy: localStorage.getItem('zg_school_proxy') || DEFAULT_SCHOOL_PROXY,
+    schoolUsername: localStorage.getItem('zg_school_user') || DEFAULT_SCHOOL_USER,
+    schoolPassword: localStorage.getItem('zg_school_pass') || DEFAULT_SCHOOL_PASS,
   }
 };
 
 // Global API helper attaching custom credentials if present
 async function apiFetch(url, options = {}) {
   const headers = options.headers || {};
+  if (appState.credentials.authProvider) headers['X-Auth-Provider'] = appState.credentials.authProvider;
   if (appState.credentials.useVertexAi) {
     headers['X-Use-Vertex-Ai'] = 'true';
     if (appState.credentials.gcpProjectId) headers['X-Gcp-Project-Id'] = appState.credentials.gcpProjectId;
     if (appState.credentials.gcpLocation) headers['X-Gcp-Location'] = appState.credentials.gcpLocation;
   }
+  if (appState.credentials.gcpCredentialsJson) headers['X-Gcp-Credentials-Json'] = encodeURIComponent(appState.credentials.gcpCredentialsJson);
   if (appState.credentials.geminiKey) headers['X-Gemini-Key'] = appState.credentials.geminiKey;
   if (appState.credentials.geminiModel) headers['X-Gemini-Model'] = appState.credentials.geminiModel;
   if (appState.credentials.geminiBaseUrl) headers['X-Gemini-Base-Url'] = appState.credentials.geminiBaseUrl;
   if (appState.credentials.zoteroKey) headers['X-Zotero-Key'] = appState.credentials.zoteroKey;
   if (appState.credentials.zoteroUserId) headers['X-Zotero-User-Id'] = appState.credentials.zoteroUserId;
   if (appState.credentials.zoteroLibType) headers['X-Zotero-Library-Type'] = appState.credentials.zoteroLibType;
+  if (appState.credentials.zoteroCollection) headers['X-Zotero-Collection'] = appState.credentials.zoteroCollection;
   if (appState.credentials.ncbiKey) headers['X-Ncbi-Key'] = appState.credentials.ncbiKey;
   if (appState.credentials.schoolProxy) headers['X-School-Proxy'] = appState.credentials.schoolProxy;
+  if (appState.credentials.schoolUsername) headers['X-School-Username'] = appState.credentials.schoolUsername;
+  if (appState.credentials.schoolPassword) headers['X-School-Password'] = appState.credentials.schoolPassword;
 
   options.headers = headers;
   return await fetch(url, options);
@@ -632,7 +646,7 @@ async function testVertexAIAuth() {
   const projInput = document.getElementById('modal-gcp-project-id');
   const locInput = document.getElementById('modal-gcp-location');
 
-  const projectId = projInput.value.trim();
+  const projectId = projInput.value.trim() || appState.credentials.gcpProjectId || DEFAULT_GCP_PROJECT_ID;
   const location = locInput.value.trim() || 'us-central1';
 
   btn.disabled = true;
@@ -648,6 +662,9 @@ async function testVertexAIAuth() {
       'X-Gcp-Location': location
     };
     if (projectId) headers['X-Gcp-Project-Id'] = projectId;
+    if (appState.credentials.gcpCredentialsJson) {
+      headers['X-Gcp-Credentials-Json'] = encodeURIComponent(appState.credentials.gcpCredentialsJson);
+    }
 
     const res = await fetch('/api/review/verify-vertex', {
       method: 'POST',
@@ -670,6 +687,177 @@ async function testVertexAIAuth() {
   }
 }
 
+// -------------------------------------------------------------
+// GCP Credentials JSON File Upload & Vercel Helper
+// -------------------------------------------------------------
+
+async function handleGcpCredentialsUpload(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    
+    let detectedProject = null;
+    let label = 'Loaded Credentials';
+
+    // 1. Authorized User ADC JSON (refresh_token)
+    if (data.refresh_token || data.type === 'authorized_user') {
+      detectedProject = data.project_id || data.quota_project_id;
+      label = `ADC JSON (Client: ${data.client_id ? data.client_id.slice(0, 16) + '...' : 'OAuth User'})`;
+    }
+    // 2. OAuth Client Secret JSON (installed or web)
+    else if (data.installed || data.web) {
+      const clientInfo = data.installed || data.web;
+      detectedProject = clientInfo.project_id;
+      label = `OAuth Client Secret (ID: ${clientInfo.client_id ? clientInfo.client_id.slice(0, 16) + '...' : 'Downloaded Secret'})`;
+    }
+    // 3. Service Account JSON
+    else if (data.type === 'service_account') {
+      detectedProject = data.project_id;
+      label = `Service Account Key (${data.client_email || 'SA'})`;
+    }
+
+    appState.credentials.gcpCredentialsJson = text;
+    localStorage.setItem('zg_gcp_credentials_json', text);
+
+    if (detectedProject) {
+      const projInput = document.getElementById('modal-gcp-project-id');
+      if (projInput) {
+        projInput.value = detectedProject;
+        appState.credentials.gcpProjectId = detectedProject;
+        localStorage.setItem('zg_gcp_project_id', detectedProject);
+        const cmdProj = document.getElementById('cmd-proj-id');
+        if (cmdProj) cmdProj.textContent = detectedProject;
+      }
+    }
+
+    updateGcpJsonUi(file.name, label);
+    showToast(`✓ Loaded ${file.name}${detectedProject ? ` for project ${detectedProject}` : ''}`);
+  } catch (err) {
+    alert('Failed to parse JSON file: ' + err.message);
+  }
+}
+
+function updateGcpJsonUi(filename = null, summary = null) {
+  const statusLabel = document.getElementById('gcp-file-status-label');
+  const clearBtn = document.getElementById('btn-clear-gcp-json');
+  const summaryEl = document.getElementById('gcp-json-summary');
+
+  if (appState.credentials.gcpCredentialsJson) {
+    if (statusLabel) statusLabel.textContent = filename || 'Credentials JSON Loaded ✓';
+    if (clearBtn) clearBtn.classList.remove('hidden');
+    if (summaryEl) summaryEl.innerHTML = `<span class="text-emerald-700 font-medium">✓ Active Credentials:</span> ${summary || 'OAuth / ADC JSON stored in browser. Ready for Vertex AI & Vercel.'}`;
+  } else {
+    if (statusLabel) statusLabel.textContent = 'Choose CLIENT_SECRET.json...';
+    if (clearBtn) clearBtn.classList.add('hidden');
+    if (summaryEl) summaryEl.textContent = 'Upload your downloaded OAuth client secret or ADC JSON to configure Vertex AI without terminal commands.';
+  }
+}
+
+function clearGcpCredentialsJson() {
+  appState.credentials.gcpCredentialsJson = '';
+  localStorage.removeItem('zg_gcp_credentials_json');
+  const fileInput = document.getElementById('modal-gcp-file-input');
+  if (fileInput) fileInput.value = '';
+  updateGcpJsonUi();
+  showToast('Removed credentials JSON.');
+}
+
+// -------------------------------------------------------------
+// Clipboard & Visibility Helpers
+// -------------------------------------------------------------
+
+function copyToClipboard(text, label = 'Copied') {
+  if (!text) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => {
+      showToast(`✓ Copied ${label} to clipboard!`);
+    }).catch(() => fallbackCopy(text, label));
+  } else {
+    fallbackCopy(text, label);
+  }
+}
+
+function fallbackCopy(text, label) {
+  const el = document.createElement('textarea');
+  el.value = text;
+  el.setAttribute('readonly', '');
+  el.style.position = 'absolute';
+  el.style.left = '-9999px';
+  document.body.appendChild(el);
+  el.select();
+  try {
+    document.execCommand('copy');
+    showToast(`✓ Copied ${label} to clipboard!`);
+  } catch (_) {
+    prompt(`Copy ${label}:`, text);
+  }
+  document.body.removeChild(el);
+}
+
+function togglePasswordVisibility(inputId, iconId) {
+  const input = document.getElementById(inputId);
+  const icon = document.getElementById(iconId);
+  if (!input) return;
+  if (input.type === 'password') {
+    input.type = 'text';
+    if (icon) icon.className = 'fa-solid fa-eye-slash text-xs';
+  } else {
+    input.type = 'password';
+    if (icon) icon.className = 'fa-solid fa-eye text-xs';
+  }
+}
+
+// -------------------------------------------------------------
+// Provider Labels & Multi-Engine Review Selector
+// -------------------------------------------------------------
+
+function getProviderLabel(prov) {
+  if (prov === 'vertex') return 'Vertex AI (CloudLab)';
+  if (prov === 'genaimil') return 'GenAI.mil (STARK)';
+  if (prov === 'aistudio') return 'AI Studio (API Key)';
+  return 'Gemini';
+}
+
+function getProviderShortLabel(prov) {
+  if (prov === 'vertex') return 'Vertex AI';
+  if (prov === 'genaimil') return 'GenAI.mil';
+  if (prov === 'aistudio') return 'AI Studio';
+  return 'Gemini';
+}
+
+function setLiteratureReviewEngine(provider) {
+  appState.credentials.authProvider = provider;
+  appState.credentials.useVertexAi = (provider === 'vertex');
+  localStorage.setItem('zg_auth_provider', provider);
+  localStorage.setItem('zg_use_vertex_ai', provider === 'vertex' ? 'true' : 'false');
+  updateLiteratureEnginePills();
+  renderLiteratureResults();
+  showToast(`Active review engine set to ${getProviderLabel(provider)}`);
+}
+
+function updateLiteratureEnginePills() {
+  const current = appState.credentials.authProvider || 'vertex';
+  const engines = ['vertex', 'genaimil', 'aistudio'];
+  engines.forEach(eng => {
+    const btn = document.getElementById(`lit-engine-${eng}`);
+    if (btn) {
+      if (eng === current) {
+        btn.className = 'px-2 py-0.5 rounded text-[11px] font-semibold bg-white text-slate-900 shadow-xs flex items-center space-x-1 border border-slate-200';
+      } else {
+        btn.className = 'px-2 py-0.5 rounded text-[11px] font-medium transition cursor-pointer flex items-center space-x-1 text-slate-500 hover:text-slate-800';
+      }
+    }
+  });
+}
+
+function toggleCardProviderMenu(idx) {
+  const menu = document.getElementById(`card-prov-menu-${idx}`);
+  if (menu) menu.classList.toggle('hidden');
+}
+
 function toggleSettingsModal() {
   const modal = document.getElementById('settings-modal');
   modal.classList.toggle('hidden');
@@ -690,15 +878,15 @@ function toggleSettingsModal() {
       localStorage.setItem('zg_gemini_model', 'auto');
     }
 
-    gcpProjectInput.value = appState.credentials.gcpProjectId || '';
+    gcpProjectInput.value = appState.credentials.gcpProjectId || DEFAULT_GCP_PROJECT_ID;
     gcpLocationInput.value = appState.credentials.gcpLocation || 'us-central1';
     
     // Command helper dynamic project ID
     const cmdProj = document.getElementById('cmd-proj-id');
     if (cmdProj) {
-      cmdProj.textContent = gcpProjectInput.value.trim() || '<PROJECT_ID>';
+      cmdProj.textContent = gcpProjectInput.value.trim() || DEFAULT_GCP_PROJECT_ID;
       gcpProjectInput.oninput = () => {
-        cmdProj.textContent = gcpProjectInput.value.trim() || '<PROJECT_ID>';
+        cmdProj.textContent = gcpProjectInput.value.trim() || DEFAULT_GCP_PROJECT_ID;
       };
     }
 
@@ -712,11 +900,25 @@ function toggleSettingsModal() {
       genaiMilUrlInput.value = appState.credentials.geminiBaseUrl || 'https://api.genai.mil/v1';
     }
 
-    document.getElementById('modal-zotero-key').value = appState.credentials.zoteroKey || '';
-    document.getElementById('modal-zotero-user-id').value = appState.credentials.zoteroUserId || '';
+    document.getElementById('modal-zotero-key').value = appState.credentials.zoteroKey || DEFAULT_ZOTERO_KEY;
+    document.getElementById('modal-zotero-user-id').value = appState.credentials.zoteroUserId || DEFAULT_ZOTERO_USER_ID;
     document.getElementById('modal-zotero-lib-type').value = appState.credentials.zoteroLibType || 'user';
+    
+    const zoteroColInput = document.getElementById('modal-zotero-collection');
+    if (zoteroColInput) zoteroColInput.value = appState.credentials.zoteroCollection || DEFAULT_ZOTERO_COLLECTION;
+
     document.getElementById('modal-ncbi-key').value = appState.credentials.ncbiKey || '';
-    document.getElementById('modal-school-proxy').value = appState.credentials.schoolProxy || '';
+    
+    const schoolProxyInput = document.getElementById('modal-school-proxy');
+    if (schoolProxyInput) schoolProxyInput.value = appState.credentials.schoolProxy || DEFAULT_SCHOOL_PROXY;
+
+    const schoolUserInput = document.getElementById('modal-school-username');
+    if (schoolUserInput) schoolUserInput.value = appState.credentials.schoolUsername || DEFAULT_SCHOOL_USER;
+
+    const schoolPassInput = document.getElementById('modal-school-password');
+    if (schoolPassInput) schoolPassInput.value = appState.credentials.schoolPassword || DEFAULT_SCHOOL_PASS;
+
+    updateGcpJsonUi();
 
     // Match model in dropdown or reveal custom input
     let found = false;
@@ -763,7 +965,7 @@ async function saveSettingsFromModal() {
   const currentProvider = appState.credentials.authProvider || 'vertex';
   let gemKey = '';
   let gemBaseUrl = '';
-  let gcpProj = document.getElementById('modal-gcp-project-id').value.trim();
+  let gcpProj = document.getElementById('modal-gcp-project-id').value.trim() || DEFAULT_GCP_PROJECT_ID;
   let gcpLoc = document.getElementById('modal-gcp-location').value.trim() || 'us-central1';
 
   if (currentProvider === 'vertex') {
@@ -785,15 +987,23 @@ async function saveSettingsFromModal() {
   let chosenModel = modelSelect.value === 'custom' ? customModelInput.value.trim() : modelSelect.value;
   if (!chosenModel) chosenModel = 'auto';
 
+  const zoteroCol = document.getElementById('modal-zotero-collection')?.value.trim() || DEFAULT_ZOTERO_COLLECTION;
+  const schoolUser = document.getElementById('modal-school-username')?.value.trim() || DEFAULT_SCHOOL_USER;
+  const schoolPass = document.getElementById('modal-school-password')?.value.trim() || DEFAULT_SCHOOL_PASS;
+  const schoolProxy = document.getElementById('modal-school-proxy')?.value.trim() || DEFAULT_SCHOOL_PROXY;
+
   appState.credentials.authProvider = currentProvider;
   appState.credentials.geminiKey = gemKey;
   appState.credentials.geminiBaseUrl = gemBaseUrl;
   appState.credentials.geminiModel = chosenModel;
-  appState.credentials.zoteroKey = document.getElementById('modal-zotero-key').value.trim();
-  appState.credentials.zoteroUserId = document.getElementById('modal-zotero-user-id').value.trim();
+  appState.credentials.zoteroKey = document.getElementById('modal-zotero-key').value.trim() || DEFAULT_ZOTERO_KEY;
+  appState.credentials.zoteroUserId = document.getElementById('modal-zotero-user-id').value.trim() || DEFAULT_ZOTERO_USER_ID;
   appState.credentials.zoteroLibType = document.getElementById('modal-zotero-lib-type').value;
+  appState.credentials.zoteroCollection = zoteroCol;
   appState.credentials.ncbiKey = document.getElementById('modal-ncbi-key').value.trim();
-  appState.credentials.schoolProxy = document.getElementById('modal-school-proxy').value.trim();
+  appState.credentials.schoolProxy = schoolProxy;
+  appState.credentials.schoolUsername = schoolUser;
+  appState.credentials.schoolPassword = schoolPass;
 
   localStorage.setItem('zg_auth_provider', currentProvider);
   localStorage.setItem('zg_use_vertex_ai', appState.credentials.useVertexAi ? 'true' : 'false');
@@ -805,9 +1015,16 @@ async function saveSettingsFromModal() {
   localStorage.setItem('zg_zotero_key', appState.credentials.zoteroKey);
   localStorage.setItem('zg_zotero_user_id', appState.credentials.zoteroUserId);
   localStorage.setItem('zg_zotero_lib_type', appState.credentials.zoteroLibType);
+  localStorage.setItem('zg_zotero_collection', appState.credentials.zoteroCollection);
   localStorage.setItem('zg_ncbi_key', appState.credentials.ncbiKey);
   localStorage.setItem('zg_school_proxy', appState.credentials.schoolProxy);
+  localStorage.setItem('zg_school_user', appState.credentials.schoolUsername);
+  localStorage.setItem('zg_school_pass', appState.credentials.schoolPassword);
 
+  const bannerUser = document.getElementById('banner-school-user');
+  if (bannerUser) bannerUser.textContent = schoolUser;
+
+  updateLiteratureEnginePills();
   toggleSettingsModal();
   await checkHealthAndCredentials();
   await loadCollections();
@@ -1241,16 +1458,58 @@ function renderLiteratureResults() {
     const pmidBadge = art.pmid ? `<span class="text-[10px] text-slate-500 font-mono">PMID: ${escapeHtml(art.pmid)}</span>` : '';
 
     const directUrl = art.proxied_url || art.url;
-    const accessBtn = directUrl ? `
-      <a href="${directUrl}" target="_blank" class="px-2.5 py-1 text-[11px] font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded border border-slate-300 flex items-center space-x-1" title="Open full article with university institutional access">
-        <i class="fa-solid fa-graduation-cap text-amber-600"></i>
-        <span>${art.source === 'jstor' && appState.credentials.schoolProxy ? 'School Access ↗' : 'Read Paper ↗'}</span>
-      </a>
-    ` : '';
+    const accessBtn = directUrl ? (
+      (art.source === 'jstor' && appState.credentials.schoolProxy) ? `
+        <div class="inline-flex items-center rounded border border-amber-300 bg-amber-50 text-[11px] overflow-hidden shadow-2xs">
+          <a href="${directUrl}" target="_blank" class="px-2 py-1 bg-amber-100/80 hover:bg-amber-200 text-amber-900 font-medium flex items-center space-x-1 border-r border-amber-200" title="Open Troy University proxied JSTOR full-text">
+            <i class="fa-solid fa-graduation-cap text-amber-700"></i>
+            <span>School Access ↗</span>
+          </a>
+          <button type="button" onclick="copyToClipboard('${escapeHtml(appState.credentials.schoolUsername || DEFAULT_SCHOOL_USER)}', 'Troy Username')" class="px-1.5 py-1 hover:bg-amber-200 text-amber-900 cursor-pointer text-[10px]" title="Copy Troy Username (mgakuria)">
+            <i class="fa-regular fa-copy"></i> mgakuria
+          </button>
+          <button type="button" onclick="copyToClipboard('${escapeHtml(appState.credentials.schoolPassword || DEFAULT_SCHOOL_PASS)}', 'Troy Password')" class="px-1.5 py-1 hover:bg-amber-200 text-amber-900 border-l border-amber-200 cursor-pointer text-[10px]" title="Copy Troy Password">
+            <i class="fa-solid fa-key"></i> Pass
+          </button>
+        </div>
+      ` : `
+        <a href="${directUrl}" target="_blank" class="px-2.5 py-1 text-[11px] font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded border border-slate-300 flex items-center space-x-1" title="Open paper in browser">
+          <i class="fa-solid fa-arrow-up-right-from-square text-slate-500"></i>
+          <span>Read Paper ↗</span>
+        </a>
+      `
+    ) : '';
 
     const abstractSnippet = art.abstract
       ? `<p class="text-slate-600 text-[11px] mt-1.5 line-clamp-2 leading-relaxed">${escapeHtml(art.abstract)}</p>`
       : `<p class="text-slate-400 italic text-[11px] mt-1.5">Abstract not indexed directly; open paper for full details.</p>`;
+
+    const activeProvider = appState.credentials.authProvider || 'vertex';
+    const reviewBtn = `
+      <div class="relative inline-flex items-center rounded border border-indigo-200 bg-indigo-50 text-[11px] font-medium text-indigo-700 shadow-2xs">
+        <button onclick="reviewExternalArticle(${idx})" class="px-2.5 py-1 hover:bg-indigo-100 flex items-center space-x-1 transition cursor-pointer" title="Review with active engine (${getProviderShortLabel(activeProvider)})">
+          <i class="fa-solid fa-wand-magic-sparkles text-indigo-600"></i>
+          <span>Review (${getProviderShortLabel(activeProvider)})</span>
+        </button>
+        <button onclick="toggleCardProviderMenu(${idx})" class="px-1.5 py-1 hover:bg-indigo-100 border-l border-indigo-200 text-indigo-600 cursor-pointer" title="Choose review engine for this article">
+          <i class="fa-solid fa-caret-down text-[9px]"></i>
+        </button>
+        <div id="card-prov-menu-${idx}" class="hidden absolute left-0 bottom-full mb-1 bg-white border border-slate-200 rounded-md shadow-lg z-30 py-1 min-w-[175px] text-left text-xs font-normal">
+          <button onclick="reviewExternalArticle(${idx}, 'vertex')" class="w-full text-left px-3 py-1.5 hover:bg-blue-50 text-slate-700 hover:text-blue-700 flex items-center space-x-2">
+            <i class="fa-solid fa-cloud text-blue-600 text-[11px]"></i>
+            <span>Vertex AI (CloudLab)</span>
+          </button>
+          <button onclick="reviewExternalArticle(${idx}, 'genaimil')" class="w-full text-left px-3 py-1.5 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 flex items-center space-x-2">
+            <i class="fa-solid fa-shield text-emerald-600 text-[11px]"></i>
+            <span>GenAI.mil (STARK)</span>
+          </button>
+          <button onclick="reviewExternalArticle(${idx}, 'aistudio')" class="w-full text-left px-3 py-1.5 hover:bg-amber-50 text-slate-700 hover:text-amber-700 flex items-center space-x-2">
+            <i class="fa-solid fa-key text-amber-600 text-[11px]"></i>
+            <span>AI Studio (API Key)</span>
+          </button>
+        </div>
+      </div>
+    `;
 
     return `
       <div class="p-3 bg-white border border-slate-200 rounded-lg hover:border-indigo-300 hover:shadow-xs transition">
@@ -1271,13 +1530,10 @@ function renderLiteratureResults() {
 
         ${abstractSnippet}
 
-        <div class="flex items-center justify-between mt-2.5 pt-2 border-t border-slate-100">
+        <div class="flex items-center justify-between mt-2.5 pt-2 border-t border-slate-100 flex-wrap gap-2">
           <div class="flex items-center space-x-2">
             ${accessBtn}
-            <button onclick="reviewExternalArticle(${idx})" class="px-2.5 py-1 text-[11px] font-medium bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded border border-indigo-200 flex items-center space-x-1 transition cursor-pointer">
-              <i class="fa-solid fa-wand-magic-sparkles text-indigo-600"></i>
-              <span>Review with Gemini</span>
-            </button>
+            ${reviewBtn}
           </div>
 
           <button id="btn-import-lit-${idx}" onclick="importExternalArticle(${idx})" class="px-2.5 py-1 text-[11px] font-medium bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded border border-emerald-300 flex items-center space-x-1 transition cursor-pointer">
@@ -1323,6 +1579,7 @@ async function importExternalArticle(idx) {
       btn.className = 'px-2.5 py-1 text-[11px] font-medium bg-emerald-600 text-white rounded flex items-center space-x-1';
       btn.innerHTML = `<i class="fa-solid fa-check"></i> <span>Saved to Zotero</span>`;
     }
+    showToast(`✓ Saved to Zotero collection "${appState.credentials.zoteroCollection || DEFAULT_ZOTERO_COLLECTION}"!`);
     loadPapers(collectionKey);
   } catch (err) {
     if (btn) {
@@ -1333,27 +1590,37 @@ async function importExternalArticle(idx) {
   }
 }
 
-async function reviewExternalArticle(idx) {
+async function reviewExternalArticle(idx, providerOverride = null) {
+  const menu = document.getElementById(`card-prov-menu-${idx}`);
+  if (menu) menu.classList.add('hidden');
+
   const art = appState.literatureResults[idx];
   if (!art) return;
 
-  if (!appState.credentials.geminiKey) {
-    alert('Please set your Gemini / GenAI.mil API Key in Settings first.');
+  const effectiveProvider = providerOverride || appState.credentials.authProvider || 'vertex';
+  const isVertex = effectiveProvider === 'vertex';
+
+  if (!isVertex && !appState.credentials.geminiKey) {
+    alert(`Please set your API key for ${getProviderLabel(effectiveProvider)} in Settings first.`);
     toggleSettingsModal();
     return;
   }
 
-  showLoading(true, `Gemini is generating an in-depth review of "${art.title.slice(0, 40)}..."`);
+  showLoading(true, `Generating review of "${art.title.slice(0, 35)}..." via ${getProviderShortLabel(effectiveProvider)}`);
   try {
     const res = await apiFetch('/api/external/review', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'X-Auth-Provider': effectiveProvider
+      },
       body: JSON.stringify({
         article: art,
         profile: 'technical_critique',
         custom_focus: `Analyze this ${art.source.toUpperCase()} paper rigorously. Synthesize findings, methodology implications, limitations, and future research directions.`,
         import_to_zotero: true,
-        collection_key: document.getElementById('collection-select')?.value || null
+        collection_key: document.getElementById('collection-select')?.value || null,
+        provider: effectiveProvider
       })
     });
 
@@ -1370,5 +1637,9 @@ async function reviewExternalArticle(idx) {
     alert(`Review generation failed: ${err.message}`);
   }
 }
+
+// Initial UI setup on script load
+updateLiteratureEnginePills();
+
 
 

@@ -29,17 +29,19 @@ class GeminiService:
         base_url: Optional[str] = None,
         use_vertex_ai: bool = False,
         project_id: Optional[str] = None,
-        location: str = "us-central1"
+        location: str = "us-central1",
+        credentials_json: Optional[Any] = None
     ):
         self.api_key = api_key.strip() if api_key else ""
         self.model = default_model or "auto"
         self.base_url = base_url.strip() if base_url else ""
-        self.use_vertex_ai = use_vertex_ai
+        self.credentials_json = credentials_json
+        self.use_vertex_ai = use_vertex_ai or bool(credentials_json)
         self.project_id = project_id.strip() if project_id else None
         self.location = location.strip() if location else "us-central1"
 
-        # If project_id is provided and no key is given, default to Vertex AI mode
-        if self.project_id and not self.api_key and not self.base_url:
+        # If project_id or credentials_json is provided and no key is given, default to Vertex AI mode
+        if (self.project_id or self.credentials_json) and not self.api_key and not self.base_url:
             self.use_vertex_ai = True
 
         # Auto-detect GenAI.mil DoD token
@@ -127,17 +129,51 @@ class GeminiService:
 
         if self.use_vertex_ai:
             try:
+                import json
+                import os
                 import google.auth
-                credentials, detected_project = google.auth.default(
-                    scopes=[
-                        "https://www.googleapis.com/auth/cloud-platform",
-                        "https://www.googleapis.com/auth/generative-language.retriever"
-                    ]
-                )
+                from google.auth.exceptions import DefaultCredentialsError
+
+                scopes = [
+                    "https://www.googleapis.com/auth/cloud-platform",
+                    "https://www.googleapis.com/auth/generative-language.retriever"
+                ]
+
+                credentials = None
+                detected_project = None
+
+                # 1. Check if credentials JSON is provided (uploaded via UI or via GOOGLE_APPLICATION_CREDENTIALS_JSON env)
+                raw_json = self.credentials_json or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+                if raw_json:
+                    try:
+                        cred_dict = json.loads(raw_json) if isinstance(raw_json, str) else raw_json
+                        # Authorized User ADC JSON (contains refresh_token and client_id)
+                        if "refresh_token" in cred_dict or cred_dict.get("type") == "authorized_user":
+                            from google.oauth2 import credentials as oauth2_creds
+                            credentials = oauth2_creds.Credentials.from_authorized_user_info(cred_dict, scopes=scopes)
+                            detected_project = cred_dict.get("project_id") or cred_dict.get("quota_project_id")
+                        # Service Account JSON
+                        elif cred_dict.get("type") == "service_account":
+                            from google.oauth2 import service_account
+                            credentials = service_account.Credentials.from_service_account_info(cred_dict, scopes=scopes)
+                            detected_project = cred_dict.get("project_id")
+                        # Client Secret JSON (installed or web)
+                        elif "installed" in cred_dict or "web" in cred_dict:
+                            info = cred_dict.get("installed") or cred_dict.get("web") or {}
+                            detected_project = info.get("project_id")
+                    except Exception as json_err:
+                        logger.warning(f"Could not parse uploaded credentials JSON: {json_err}")
+
+                # 2. If credentials not yet constructed from JSON, fall back to google.auth.default()
+                if credentials is None:
+                    credentials, adc_project = google.auth.default(scopes=scopes)
+                    if not detected_project:
+                        detected_project = adc_project
+
                 project = self.project_id or detected_project
                 if not project:
                     raise ValueError(
-                        "GCP Project ID is required for Vertex AI. Please configure it in Settings or set via 'gcloud config set project <PROJECT_ID>'."
+                        "GCP Project ID is required for Vertex AI. Please configure it in Settings or upload your Credentials JSON."
                     )
                 self._client = genai.Client(
                     vertexai=True,
@@ -154,11 +190,12 @@ class GeminiService:
                     raise HTTPException(
                         status_code=401,
                         detail=(
-                            "Vertex AI Application Default Credentials (ADC) not found. "
-                            "Please run the following 3 commands in your terminal to authorize your OAuth credentials:\n"
-                            "1) gcloud auth login\n"
-                            f"2) gcloud config set project {self.project_id or 'PROJECT_ID'}\n"
-                            "3) gcloud auth application-default login --client-id-file=CLIENT_SECRET.json --scopes=\"https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/generative-language.retriever\""
+                            "Vertex AI Application Default Credentials (ADC) not found.\n"
+                            "• On Local Workstations: Run these terminal commands with your CLIENT_SECRET.json:\n"
+                            "  1) gcloud auth login\n"
+                            f"  2) gcloud config set project {self.project_id or 'PROJECT_ID'}\n"
+                            "  3) gcloud auth application-default login --client-id-file=CLIENT_SECRET.json --scopes=\"https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/generative-language.retriever\"\n\n"
+                            "• On Vercel Deployments: Upload your Credentials JSON in Settings or set the GOOGLE_APPLICATION_CREDENTIALS_JSON environment variable in Vercel Project Settings."
                         )
                     )
                 raise HTTPException(status_code=500, detail=f"Vertex AI initialization failed: {err_msg}")

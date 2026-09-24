@@ -333,13 +333,52 @@ class ZoteroService:
             )
             return resp.status_code in (200, 201, 204)
 
+    async def get_or_create_collection(self, name: str = "GResearch") -> Optional[str]:
+        """
+        Locates an existing collection by name or creates it if not found.
+        Returns the collection key or None.
+        """
+        target_name = (name or "GResearch").strip()
+        try:
+            collections = await self.get_collections()
+            for col in collections:
+                if col.name.strip().lower() == target_name.lower():
+                    logger.info(f"Using existing Zotero collection '{col.name}' (key: {col.key})")
+                    return col.key
+        except Exception as e:
+            logger.warning(f"Could not search existing collections for '{target_name}': {e}")
+
+        # Create the collection
+        try:
+            logger.info(f"Creating Zotero collection '{target_name}'...")
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(
+                    f"{self.library_url}/collections",
+                    headers=self.headers,
+                    json=[{"name": target_name}]
+                )
+                if resp.status_code in (200, 201):
+                    res_data = resp.json()
+                    successful = res_data.get("successful", {})
+                    if successful:
+                        created_key = list(successful.values())[0].get("key")
+                        logger.info(f"Successfully created Zotero collection '{target_name}' (key: {created_key})")
+                        return created_key
+                else:
+                    logger.error(f"Zotero error creating collection '{target_name}': {resp.status_code} {resp.text}")
+        except Exception as e:
+            logger.error(f"Failed to create collection '{target_name}' in Zotero: {e}")
+
+        return None
+
     async def create_document_item(
         self,
         title: str,
         abstract_note: str = "",
         collection_key: Optional[str] = None,
         creators: Optional[List[str]] = None,
-        tags: Optional[List[str]] = None
+        tags: Optional[List[str]] = None,
+        collection_name: Optional[str] = "GResearch"
     ) -> Tuple[bool, Optional[str], str]:
         """
         Create a new document/report item in the user's Zotero library.
@@ -361,8 +400,13 @@ class ZoteroService:
             "abstractNote": abstract_note[:2000] if abstract_note else "",
             "tags": tag_objs
         }
-        if collection_key:
-            item_data["collections"] = [collection_key]
+        
+        target_col = collection_key
+        if not target_col and collection_name:
+            target_col = await self.get_or_create_collection(collection_name)
+
+        if target_col:
+            item_data["collections"] = [target_col]
 
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(
@@ -391,7 +435,8 @@ class ZoteroService:
         pmid: Optional[str] = None,
         abstract_note: Optional[str] = None,
         collection_key: Optional[str] = None,
-        tags: Optional[List[str]] = None
+        tags: Optional[List[str]] = None,
+        collection_name: Optional[str] = "GResearch"
     ) -> Tuple[bool, Optional[str], str]:
         """
         Creates a journalArticle bibliographic item in Zotero for PubMed or JSTOR entries.
@@ -428,8 +473,13 @@ class ZoteroService:
             "abstractNote": (abstract_note[:3000] if abstract_note else ""),
             "tags": tag_objs
         }
-        if collection_key:
-            item_data["collections"] = [collection_key]
+        
+        target_col = collection_key
+        if not target_col and collection_name:
+            target_col = await self.get_or_create_collection(collection_name)
+
+        if target_col:
+            item_data["collections"] = [target_col]
 
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(

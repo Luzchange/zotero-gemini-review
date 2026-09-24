@@ -136,7 +136,8 @@ async def review_document(request: Request, body: WorkDocumentReviewRequest):
         base_url=creds.get("gemini_base_url"),
         use_vertex_ai=creds.get("use_vertex_ai", False),
         project_id=creds.get("gcp_project_id"),
-        location=creds.get("gcp_location", "us-central1")
+        location=creds.get("gcp_location", "us-central1"),
+        credentials_json=creds.get("gcp_credentials_json")
     )
 
     review_md, zotero_html = await gemini_svc.review_work_document(
@@ -166,7 +167,8 @@ async def review_document(request: Request, body: WorkDocumentReviewRequest):
                     title=doc["title"],
                     abstract_note=f"Imported work document ({doc['page_count']} pages). Reviewed via GResearch.",
                     collection_key=body.collection_key,
-                    tags=["work-document", f"profile-{body.profile}"]
+                    tags=["work-document", f"profile-{body.profile}"],
+                    collection_name=creds.get("zotero_collection", "GResearch")
                 )
                 if success and item_key:
                     zotero_item_key = item_key
@@ -256,7 +258,8 @@ async def save_to_zotero(request: Request, body: SaveDocumentToZoteroRequest):
         title=doc["title"],
         abstract_note=f"Work document ({doc['page_count']} pages). Reviewed via GResearch.",
         collection_key=body.collection_key,
-        tags=["work-document", "gemini-reviewed"]
+        tags=["work-document", "gemini-reviewed"],
+        collection_name=creds.get("zotero_collection", "GResearch")
     )
 
     if not success or not item_key:

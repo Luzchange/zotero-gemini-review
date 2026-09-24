@@ -79,6 +79,11 @@ def test_jstor_proxy_url_builder():
     proxied_suffix = service_suffix.build_proxied_url(raw_url)
     assert "www-jstor-org.proxy.lib.school.edu" in proxied_suffix
 
+    # Troy University EZproxy format
+    service_troy = JSTORService(proxy_prefix="https://www-jstor-org.libproxy.troy.edu/")
+    troy_proxied = service_troy.build_proxied_url(raw_url)
+    assert troy_proxied == "https://www-jstor-org.libproxy.troy.edu/stable/2539123"
+
 @pytest.mark.asyncio
 async def test_pubmed_search_mocked(monkeypatch):
     class MockSearchResponse:
@@ -236,3 +241,64 @@ async def test_review_external_article_mocked(monkeypatch):
     assert data["zotero_saved"] is True
     assert data["zotero_item_key"] == "ZOTERO_ITEM_99"
     assert data["zotero_note_key"] == "ZOTERO_NOTE_99"
+
+@pytest.mark.asyncio
+async def test_review_external_article_with_provider_override(monkeypatch):
+    captured_service_args = {}
+
+    from app.services.gemini_service import GeminiService
+    orig_init = GeminiService.__init__
+
+    def mock_init(self, *args, **kwargs):
+        captured_service_args["kwargs"] = kwargs
+        orig_init(self, *args, **kwargs)
+
+    async def mock_review(self, *args, **kwargs):
+        return "## Vertex Review\nSolid critique.", "<p>Zotero Note</p>"
+
+    monkeypatch.setattr(GeminiService, "__init__", mock_init)
+    monkeypatch.setattr(GeminiService, "review_work_document", mock_review)
+
+    sample_article = {
+        "id": "pubmed_38123456",
+        "source": "pubmed",
+        "title": "CRISPR Genome Editing",
+        "authors": ["Alice Chen"],
+        "journal": "Science",
+        "publication_year": "2024",
+        "abstract": "Breakthrough gene editing.",
+        "pmid": "38123456"
+    }
+
+    # Test Vertex AI provider selection
+    res_vertex = client.post(
+        "/api/external/review",
+        json={
+            "article": sample_article,
+            "provider": "vertex",
+            "import_to_zotero": False
+        },
+        headers={
+            "x-gcp-project-id": "afrl-il4-rch-usafsamoe-aewa",
+            "x-use-vertex-ai": "true"
+        }
+    )
+    assert res_vertex.status_code == 200
+    assert captured_service_args["kwargs"].get("use_vertex_ai") is True
+    assert captured_service_args["kwargs"].get("project_id") == "afrl-il4-rch-usafsamoe-aewa"
+
+    # Test GenAI.mil provider selection
+    res_mil = client.post(
+        "/api/external/review",
+        json={
+            "article": sample_article,
+            "provider": "genaimil",
+            "import_to_zotero": False
+        },
+        headers={
+            "x-gemini-key": "STARK_test_token"
+        }
+    )
+    assert res_mil.status_code == 200
+    assert captured_service_args["kwargs"].get("base_url") == "https://api.genai.mil/v1"
+

@@ -31,24 +31,50 @@ async def list_models(request: Request):
 @router.post("/verify-vertex")
 async def verify_vertex(request: Request):
     """Test Vertex AI Application Default Credentials and project setup."""
+    import json
+    import os
     creds = get_credentials(request)
     project_id = creds.get("gcp_project_id")
     location = creds.get("gcp_location", "us-central1")
+    raw_json = creds.get("gcp_credentials_json") or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_JSON")
     
     try:
         import google.auth
-        credentials, detected_project = google.auth.default(
-            scopes=[
-                "https://www.googleapis.com/auth/cloud-platform",
-                "https://www.googleapis.com/auth/generative-language.retriever"
-            ]
-        )
+        scopes = [
+            "https://www.googleapis.com/auth/cloud-platform",
+            "https://www.googleapis.com/auth/generative-language.retriever"
+        ]
+        credentials = None
+        detected_project = None
+
+        if raw_json:
+            try:
+                cred_dict = json.loads(raw_json) if isinstance(raw_json, str) else raw_json
+                if "refresh_token" in cred_dict or cred_dict.get("type") == "authorized_user":
+                    from google.oauth2 import credentials as oauth2_creds
+                    credentials = oauth2_creds.Credentials.from_authorized_user_info(cred_dict, scopes=scopes)
+                    detected_project = cred_dict.get("project_id") or cred_dict.get("quota_project_id")
+                elif cred_dict.get("type") == "service_account":
+                    from google.oauth2 import service_account
+                    credentials = service_account.Credentials.from_service_account_info(cred_dict, scopes=scopes)
+                    detected_project = cred_dict.get("project_id")
+                elif "installed" in cred_dict or "web" in cred_dict:
+                    info = cred_dict.get("installed") or cred_dict.get("web") or {}
+                    detected_project = info.get("project_id")
+            except Exception as j_err:
+                logger.warning(f"Error parsing uploaded credentials JSON in verify_vertex: {j_err}")
+
+        if credentials is None:
+            credentials, adc_project = google.auth.default(scopes=scopes)
+            if not detected_project:
+                detected_project = adc_project
+
         actual_project = project_id or detected_project
         if not actual_project:
             return {
                 "success": False,
                 "project_id": None,
-                "message": "Application Default Credentials found, but GCP Project ID is missing. Please enter your CloudLab Project ID."
+                "message": "Credentials loaded, but GCP Project ID is missing. Please enter your CloudLab Project ID."
             }
         
         from google import genai
@@ -87,7 +113,8 @@ def get_gemini_service(request: Request) -> GeminiService:
         base_url=creds.get("gemini_base_url"),
         use_vertex_ai=creds.get("use_vertex_ai", False),
         project_id=creds.get("gcp_project_id"),
-        location=creds.get("gcp_location", "us-central1")
+        location=creds.get("gcp_location", "us-central1"),
+        credentials_json=creds.get("gcp_credentials_json")
     )
 
 def get_zotero_service(request: Request) -> ZoteroService:

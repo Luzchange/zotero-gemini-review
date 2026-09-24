@@ -92,7 +92,7 @@ async def test_review_document_with_mocked_gemini_and_zotero(monkeypatch):
     monkeypatch.setattr(GeminiService, "review_work_document", mock_review)
 
     # Mock Zotero creation
-    async def mock_create_item(self, title, abstract_note, collection_key=None, creators=None, tags=None):
+    async def mock_create_item(self, title, abstract_note, collection_key=None, creators=None, tags=None, **kwargs):
         return True, "ZOTERO_ITEM_123", "Item created"
 
     async def mock_create_note(self, parent_item_key, note_html, tags=None):
@@ -162,7 +162,7 @@ async def test_work_document_chat(monkeypatch):
 async def test_save_to_zotero_explicit(monkeypatch):
     from app.services.zotero_service import ZoteroService
 
-    async def mock_create_item(self, title, abstract_note, collection_key=None, creators=None, tags=None):
+    async def mock_create_item(self, title, abstract_note, collection_key=None, creators=None, tags=None, **kwargs):
         return True, "ITEM_KEY_EXPLICIT", "Success"
 
     async def mock_create_note(self, parent_item_key, note_html, tags=None):

@@ -191,6 +191,7 @@ class WorkDocumentReviewRequest(BaseModel):
         description="Optional Zotero collection key to file the document into"
     )
     model: Optional[str] = None
+    provider: Optional[str] = None  # 'vertex' | 'genaimil' | 'aistudio'
 
 class WorkDocumentReviewResponse(BaseModel):
     document_id: str
@@ -260,6 +261,7 @@ class ReviewExternalArticleRequest(BaseModel):
     profile: Optional[str] = "technical_critique"
     custom_focus: Optional[str] = None
     model: Optional[str] = None
+    provider: Optional[str] = None  # 'vertex' | 'genaimil' | 'aistudio'
     import_to_zotero: bool = True
     collection_key: Optional[str] = None
 

@@ -150,3 +150,38 @@ def test_verify_vertex_endpoint_failure(monkeypatch):
     assert data["success"] is False
     assert "gcloud auth application-default login" in data["message"]
 
+def test_verify_vertex_endpoint_with_credentials_json(monkeypatch):
+    import json
+    import urllib.parse
+    from google.oauth2 import credentials
+    from google import genai
+
+    class MockCreds:
+        def __init__(self, **kwargs):
+            self.project_id = "afrl-il4-rch-usafsamoe-aewa"
+
+    monkeypatch.setattr(credentials.Credentials, "from_authorized_user_info", lambda info, scopes=None: MockCreds())
+    monkeypatch.setattr(genai, "Client", lambda **kwargs: None)
+
+    fake_json = json.dumps({
+        "type": "authorized_user",
+        "client_id": "test.apps.googleusercontent.com",
+        "client_secret": "secret",
+        "refresh_token": "refresh_123",
+        "project_id": "afrl-il4-rch-usafsamoe-aewa"
+    })
+    encoded_json = urllib.parse.quote(fake_json)
+
+    response = client.post(
+        "/api/review/verify-vertex",
+        headers={
+            "x-use-vertex-ai": "true",
+            "x-gcp-project-id": "afrl-il4-rch-usafsamoe-aewa",
+            "x-gcp-credentials-json": encoded_json
+        }
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["project_id"] == "afrl-il4-rch-usafsamoe-aewa"
+

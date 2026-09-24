@@ -73,7 +73,8 @@ async def import_external_article_to_zotero(payload: ImportExternalToZoteroReque
         pmid=art.pmid,
         abstract_note=art.abstract,
         collection_key=payload.collection_key,
-        tags=tags
+        tags=tags,
+        collection_name=creds.get("zotero_collection", "GResearch")
     )
 
     if not success:
@@ -96,13 +97,26 @@ async def review_external_article(payload: ReviewExternalArticleRequest, request
         )
 
     art = payload.article
+    use_vertex = creds.get("use_vertex_ai", False)
+    base_url = creds.get("gemini_base_url")
+    if payload.provider:
+        prov = payload.provider.lower().strip()
+        if prov == "vertex":
+            use_vertex = True
+        elif prov == "genaimil":
+            use_vertex = False
+            base_url = "https://api.genai.mil/v1"
+        elif prov in ("aistudio", "gemini"):
+            use_vertex = False
+
     gemini_svc = GeminiService(
         api_key=creds.get("gemini_key") or "",
         default_model=payload.model or creds["gemini_model"],
-        base_url=creds.get("gemini_base_url"),
-        use_vertex_ai=creds.get("use_vertex_ai", False),
+        base_url=base_url,
+        use_vertex_ai=use_vertex,
         project_id=creds.get("gcp_project_id"),
-        location=creds.get("gcp_location", "us-central1")
+        location=creds.get("gcp_location", "us-central1"),
+        credentials_json=creds.get("gcp_credentials_json")
     )
 
     formatted_text = f"""
@@ -155,7 +169,8 @@ ABSTRACT:
                 pmid=art.pmid,
                 abstract_note=art.abstract,
                 collection_key=payload.collection_key,
-                tags=tags
+                tags=tags,
+                collection_name=creds.get("zotero_collection", "GResearch")
             )
 
             if success_item and item_key:
