@@ -513,13 +513,11 @@
             </button>
           </div>
           <select id="modal-gemini-model" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white">
-            <option value="gemini-2.5-flash">gemini-2.5-flash (Vertex AI / CloudLab Recommended)</option>
-            <option value="gemini-2.5-pro">gemini-2.5-pro (Vertex AI Deep Reasoning)</option>
-            <option value="gemini-3.6-flash">gemini-3.6-flash (Google AI Studio Latest)</option>
+            <option value="auto" selected>⚡ Auto (Best Available Model - Recommended)</option>
+            <option value="gemini-2.5-flash">gemini-2.5-flash (High Performance & Fast)</option>
+            <option value="gemini-2.5-pro">gemini-2.5-pro (Deep Academic Reasoning)</option>
             <option value="gemini-2.0-flash">gemini-2.0-flash (General Purpose)</option>
             <option value="gemini-2.0-flash-lite">gemini-2.0-flash-lite (Fast & Light)</option>
-            <option value="gemini-1.5-flash">gemini-1.5-flash (High Rate Limit)</option>
-            <option value="gemini-1.5-pro">gemini-1.5-pro (Long Context Literature)</option>
             <option value="custom">-- Custom Model Name --</option>
           </select>
           <input type="text" id="modal-gemini-model-custom" placeholder="e.g. gemini-2.5-flash" class="hidden mt-1.5 w-full p-2 border border-blue-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none bg-blue-50/30 text-xs">

@@ -25,14 +25,14 @@ class GeminiService:
     def __init__(
         self,
         api_key: Optional[str] = "",
-        default_model: str = "gemini-3.6-flash",
+        default_model: str = "auto",
         base_url: Optional[str] = None,
         use_vertex_ai: bool = False,
         project_id: Optional[str] = None,
         location: str = "us-central1"
     ):
         self.api_key = api_key.strip() if api_key else ""
-        self.model = default_model or "gemini-3.6-flash"
+        self.model = default_model or "auto"
         self.base_url = base_url.strip() if base_url else ""
         self.use_vertex_ai = use_vertex_ai
         self.project_id = project_id.strip() if project_id else None
@@ -71,13 +71,17 @@ class GeminiService:
             messages.append({"role": "system", "content": system_instruction})
         messages.append({"role": "user", "content": user_prompt})
 
+        actual_model = model
+        if not actual_model or actual_model == "auto":
+            actual_model = "gemini-2.5-flash"
+
         payload = {
-            "model": model,
+            "model": actual_model,
             "messages": messages,
             "temperature": temperature
         }
 
-        logger.info(f"Dispatching request to GenAI endpoint: {endpoint} (model: {model})")
+        logger.info(f"Dispatching request to GenAI endpoint: {endpoint} (model: {actual_model})")
         try:
             async with httpx.AsyncClient(timeout=120.0) as client:
                 resp = await client.post(endpoint, headers=headers, json=payload)
@@ -174,39 +178,46 @@ class GeminiService:
 
     async def list_available_models(self) -> List[Dict[str, Any]]:
         """List available models for this provider."""
+        auto_entry = {"id": "auto", "display_name": "⚡ Auto (Best Available Model - Recommended)"}
         if self._is_openai_compatible():
             return [
-                {"id": "gemini-2.5-flash", "display_name": "gemini-2.5-flash (GenAI.mil)"},
+                auto_entry,
+                {"id": "gemini-2.5-flash", "display_name": "gemini-2.5-flash (GenAI.mil Recommended)"},
                 {"id": "gemini-2.0-flash", "display_name": "gemini-2.0-flash"},
-                {"id": "gemini-1.5-flash", "display_name": "gemini-1.5-flash"},
             ]
 
         if self.use_vertex_ai:
             return [
+                auto_entry,
                 {"id": "gemini-2.5-flash", "display_name": "gemini-2.5-flash (Vertex AI / CloudLab Recommended)"},
                 {"id": "gemini-2.5-pro", "display_name": "gemini-2.5-pro (Vertex AI Deep Reasoning)"},
                 {"id": "gemini-2.0-flash", "display_name": "gemini-2.0-flash (Vertex AI General Purpose)"},
-                {"id": "gemini-1.5-pro", "display_name": "gemini-1.5-pro (Vertex AI Long Context)"},
-                {"id": "gemini-1.5-flash", "display_name": "gemini-1.5-flash (Vertex AI Fast)"},
             ]
 
         try:
             client = self._get_client()
             models_pager = client.models.list()
-            available = []
+            available = [auto_entry]
             for m in models_pager:
-                model_id = m.name.replace("models/", "") if m.name else ""
+                model_id = m.name.replace("models/", "") if getattr(m, "name", None) else ""
                 actions = getattr(m, "supported_actions", None) or []
-                if not actions or "generateContent" in actions:
-                    available.append({
-                        "id": model_id,
-                        "display_name": m.display_name or model_id,
-                        "description": m.description or ""
-                    })
+                if "generateContent" in actions or not actions:
+                    if not any(x in model_id.lower() for x in ["embedding", "imagen", "aqa", "bison"]):
+                        available.append({
+                            "id": model_id,
+                            "display_name": getattr(m, "display_name", "") or model_id,
+                            "description": getattr(m, "description", "") or ""
+                        })
             return available
         except Exception as e:
-            logger.warning(f"Failed to list models from Gemini API: {e}")
-            raise HTTPException(status_code=502, detail=f"Failed to fetch model list from Gemini: {str(e)}")
+            logger.warning(f"Failed to list models dynamically from Gemini API: {e}")
+            return [
+                auto_entry,
+                {"id": "gemini-2.5-flash", "display_name": "gemini-2.5-flash (Recommended)"},
+                {"id": "gemini-2.0-flash", "display_name": "gemini-2.0-flash"},
+                {"id": "gemini-2.0-flash-lite", "display_name": "gemini-2.0-flash-lite"},
+                {"id": "gemini-2.5-pro", "display_name": "gemini-2.5-pro"},
+            ]
 
     async def _generate_gemini_content(
         self,
@@ -214,17 +225,31 @@ class GeminiService:
         contents: List[Any],
         config: Dict[str, Any]
     ) -> str:
-        """Call client.models.generate_content with retry logic and fallback for 503 high demand spikes."""
+        """Call client.models.generate_content with self-healing model cascade and 404/503 auto-recovery."""
         client = self._get_client()
 
-        # Fallback cascade if primary model hits 503 high demand
-        models_to_try = [model]
-        for fallback in ("gemini-2.0-flash", "gemini-1.5-flash"):
-            if fallback not in models_to_try:
-                models_to_try.append(fallback)
+        # Build candidate cascade based on environment
+        if self.use_vertex_ai:
+            default_cascade = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"]
+        else:
+            default_cascade = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-2.5-pro"]
+
+        requested_model = (model or "").strip()
+        if not requested_model or requested_model == "auto":
+            models_to_try = list(default_cascade)
+        else:
+            models_to_try = [requested_model]
+            for m in default_cascade:
+                if m not in models_to_try:
+                    models_to_try.append(m)
 
         last_error = None
         for candidate_model in models_to_try:
+            # Skip models known to trigger 404 on Google AI Studio v1beta
+            if not self.use_vertex_ai and candidate_model in ("gemini-1.5-flash", "models/gemini-1.5-flash", "gemini-3.6-flash"):
+                logger.info(f"Skipping legacy/deprecated model {candidate_model} on v1beta API")
+                continue
+
             for attempt in range(2):
                 try:
                     logger.info(f"Generating content with model: {candidate_model} (attempt {attempt + 1})")
@@ -237,36 +262,78 @@ class GeminiService:
                 except Exception as e:
                     last_error = e
                     err_str = str(e)
+                    err_lower = err_str.lower()
+
+                    # 1. Vertex AI 403 Permission Denied
+                    if self.use_vertex_ai and ("403" in err_str or "permissiondenied" in err_lower):
+                        raise HTTPException(
+                            status_code=403,
+                            detail=(
+                                f"Vertex AI Permission Denied for project '{self.project_id}'. "
+                                "Please verify: 1) Vertex AI API is enabled in GCP Console, "
+                                "and 2) your account has the 'Vertex AI User' role on this project."
+                            )
+                        )
+
+                    # 2. 404 NOT_FOUND / unsupported model: immediately switch to next model in cascade
+                    is_not_found = (
+                        "404" in err_str or 
+                        "not found" in err_lower or 
+                        "not supported for generatecontent" in err_lower or
+                        "call modelservice.listmodels" in err_lower
+                    )
+                    if is_not_found:
+                        logger.warning(
+                            f"Model '{candidate_model}' is not supported or not found on this API version ({e}). "
+                            "Auto-switching to next available model in cascade..."
+                        )
+                        break
+
+                    # 3. 503 High Demand / 429 Rate Limit: retry with backoff
                     is_transient = (
                         "503" in err_str or 
                         "429" in err_str or 
-                        "high demand" in err_str.lower() or 
-                        "unavailable" in err_str.lower() or
-                        "resourceexhausted" in err_str.lower()
+                        "high demand" in err_lower or 
+                        "unavailable" in err_lower or
+                        "resourceexhausted" in err_lower
                     )
                     if is_transient:
                         logger.warning(f"Model {candidate_model} busy/high demand ({e}), retrying in {attempt + 1.5}s...")
                         await asyncio.sleep(attempt + 1.5)
                         continue
                     else:
-                        if self.use_vertex_ai and ("403" in err_str or "permissiondenied" in err_str.lower()):
-                            raise HTTPException(
-                                status_code=403,
-                                detail=(
-                                    f"Vertex AI Permission Denied for project '{self.project_id}'. "
-                                    "Please verify: 1) Vertex AI API is enabled in GCP Console, "
-                                    "and 2) your account has the 'Vertex AI User' role on this project."
-                                )
-                            )
-                        # Non-transient error (e.g. 400 invalid argument or 404 not found)
+                        logger.warning(f"Model {candidate_model} encountered non-transient error: {e}. Trying fallback model...")
                         break
 
-            logger.warning(f"Model {candidate_model} busy or unavailable, attempting fallback model if available...")
+            logger.info(f"Model {candidate_model} unavailable or exhausted; cascading to next candidate model...")
 
-        logger.error(f"Gemini API generation failed after retries/fallbacks: {last_error}")
+        # If all predefined models failed with 404/transient errors, try dynamic discovery via client.models.list()
+        try:
+            logger.info("Attempting dynamic fallback discovery via client.models.list()...")
+            available_pager = client.models.list()
+            for m in available_pager:
+                m_id = m.name.replace("models/", "") if getattr(m, "name", None) else ""
+                actions = getattr(m, "supported_actions", None) or []
+                if m_id and m_id not in models_to_try and ("generateContent" in actions or not actions):
+                    if not any(x in m_id.lower() for x in ["embedding", "imagen", "aqa", "bison"]):
+                        logger.info(f"Dynamically discovered fallback model: {m_id}. Attempting generation...")
+                        try:
+                            response = client.models.generate_content(
+                                model=m_id,
+                                contents=contents,
+                                config=config
+                            )
+                            return response.text or "No response generated."
+                        except Exception as dyn_err:
+                            logger.warning(f"Dynamic fallback model {m_id} also failed: {dyn_err}")
+                            continue
+        except Exception as list_err:
+            logger.debug(f"Could not list models dynamically: {list_err}")
+
+        logger.error(f"Gemini API generation failed after retries and automatic fallbacks: {last_error}")
         raise HTTPException(
             status_code=502,
-            detail=f"Gemini generation failed: {str(last_error)}. If you are seeing 503 High Demand, try selecting gemini-2.0-flash or gemini-1.5-flash in Settings."
+            detail=f"Gemini generation failed: {str(last_error)}. You can set Model to 'Auto' in Settings for automatic model selection."
         )
 
     def _build_paper_summary_text(self, paper: PaperItem) -> str:

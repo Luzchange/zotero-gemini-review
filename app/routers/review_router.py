@@ -83,7 +83,7 @@ def get_gemini_service(request: Request) -> GeminiService:
         )
     return GeminiService(
         api_key=creds.get("gemini_key") or "",
-        default_model=creds.get("gemini_model") or "gemini-3.6-flash",
+        default_model=creds.get("gemini_model") or "auto",
         base_url=creds.get("gemini_base_url"),
         use_vertex_ai=creds.get("use_vertex_ai", False),
         project_id=creds.get("gcp_project_id"),

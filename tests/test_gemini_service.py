@@ -87,7 +87,7 @@ async def test_gemini_service_openai_generation_mocked(monkeypatch):
 
 def test_gemini_service_default_model():
     service = GeminiService(api_key="fake_key")
-    assert service.model == "gemini-3.6-flash"
+    assert service.model == "auto"
 
 @pytest.mark.asyncio
 async def test_gemini_service_503_fallback(monkeypatch):
@@ -99,7 +99,7 @@ async def test_gemini_service_503_fallback(monkeypatch):
 
     def mock_generate_content(model, contents, config):
         calls.append(model)
-        if model == "gemini-3.6-flash":
+        if model == "gemini-2.5-flash":
             raise Exception("503 UNAVAILABLE. This model is currently experiencing high demand.")
         return MockGenerated()
 
@@ -110,13 +110,70 @@ async def test_gemini_service_503_fallback(monkeypatch):
     monkeypatch.setattr(service, "_get_client", lambda: MockClient())
 
     result = await service._generate_gemini_content(
-        model="gemini-3.6-flash",
+        model="gemini-2.5-flash",
         contents=["test prompt"],
         config={}
     )
     assert result == "Fallback Success Review"
-    assert "gemini-3.6-flash" in calls
+    assert "gemini-2.5-flash" in calls
     assert "gemini-2.0-flash" in calls
+
+@pytest.mark.asyncio
+async def test_gemini_service_404_not_found_auto_recovery(monkeypatch):
+    """Verify that a 404 NOT_FOUND error immediately auto-cascades to the next working model."""
+    service = GeminiService(api_key="fake_key")
+
+    calls = []
+    class MockGenerated:
+        text = "Auto Cascaded Success Review"
+
+    def mock_generate_content(model, contents, config):
+        calls.append(model)
+        if model == "custom-unsupported-model":
+            raise Exception("404 NOT_FOUND. {'error': {'code': 404, 'message': 'models/custom-unsupported-model is not found for API version v1beta, or is not supported for generateContent. Call ModelService.ListModels to see the list of available models and their supported methods.'}}")
+        return MockGenerated()
+
+    class MockClient:
+        class models:
+            generate_content = staticmethod(mock_generate_content)
+
+    monkeypatch.setattr(service, "_get_client", lambda: MockClient())
+
+    result = await service._generate_gemini_content(
+        model="custom-unsupported-model",
+        contents=["test prompt"],
+        config={}
+    )
+    assert result == "Auto Cascaded Success Review"
+    assert "custom-unsupported-model" in calls
+    assert "gemini-2.5-flash" in calls
+
+@pytest.mark.asyncio
+async def test_gemini_service_auto_mode(monkeypatch):
+    """Verify that model='auto' automatically selects the best available model."""
+    service = GeminiService(api_key="fake_key")
+
+    calls = []
+    class MockGenerated:
+        text = "Auto Mode Review"
+
+    def mock_generate_content(model, contents, config):
+        calls.append(model)
+        return MockGenerated()
+
+    class MockClient:
+        class models:
+            generate_content = staticmethod(mock_generate_content)
+
+    monkeypatch.setattr(service, "_get_client", lambda: MockClient())
+
+    result = await service._generate_gemini_content(
+        model="auto",
+        contents=["test prompt"],
+        config={}
+    )
+    assert result == "Auto Mode Review"
+    assert calls[0] == "gemini-2.5-flash"
 
 def test_vertex_ai_auto_detect_from_project_id():
     service = GeminiService(project_id="afrl-sandbox-12345")

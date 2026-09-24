@@ -1,7 +1,7 @@
 let savedModel = localStorage.getItem('zg_gemini_model');
-if (savedModel === 'gemini-2.5-flash' || savedModel === 'gemini-3.6-pro') {
-  savedModel = 'gemini-3.6-flash';
-  localStorage.setItem('zg_gemini_model', savedModel);
+if (!savedModel || savedModel === 'gemini-1.5-flash' || savedModel === 'gemini-3.6-flash' || savedModel === 'gemini-1.5-pro' || savedModel === 'gemini-3.6-pro') {
+  savedModel = 'auto';
+  localStorage.setItem('zg_gemini_model', 'auto');
 }
 
 const DEFAULT_ZOTERO_KEY = 'qoszWMinOK1os3M4T9OTQLbH';
@@ -31,7 +31,7 @@ let appState = {
     gcpProjectId: localStorage.getItem('zg_gcp_project_id') || '',
     gcpLocation: localStorage.getItem('zg_gcp_location') || 'us-central1',
     geminiKey: localStorage.getItem('zg_gemini_key') || '',
-    geminiModel: savedModel || 'gemini-2.5-flash',
+    geminiModel: savedModel || 'auto',
     geminiBaseUrl: localStorage.getItem('zg_gemini_base_url') || '',
     zoteroKey: localStorage.getItem('zg_zotero_key') || DEFAULT_ZOTERO_KEY,
     zoteroUserId: localStorage.getItem('zg_zotero_user_id') || DEFAULT_ZOTERO_USER_ID,
@@ -683,7 +683,12 @@ function toggleSettingsModal() {
     const genaiMilUrlInput = document.getElementById('modal-genaimil-base-url');
     const modelSelect = document.getElementById('modal-gemini-model');
     const customModelInput = document.getElementById('modal-gemini-model-custom');
-    const currentModel = appState.credentials.geminiModel || 'gemini-2.5-flash';
+    let currentModel = appState.credentials.geminiModel || 'auto';
+    if (currentModel === 'gemini-1.5-flash' || currentModel === 'gemini-3.6-flash' || currentModel === 'gemini-1.5-pro' || currentModel === 'gemini-3.6-pro') {
+      currentModel = 'auto';
+      appState.credentials.geminiModel = 'auto';
+      localStorage.setItem('zg_gemini_model', 'auto');
+    }
 
     gcpProjectInput.value = appState.credentials.gcpProjectId || '';
     gcpLocationInput.value = appState.credentials.gcpLocation || 'us-central1';
@@ -778,7 +783,7 @@ async function saveSettingsFromModal() {
   const modelSelect = document.getElementById('modal-gemini-model');
   const customModelInput = document.getElementById('modal-gemini-model-custom');
   let chosenModel = modelSelect.value === 'custom' ? customModelInput.value.trim() : modelSelect.value;
-  if (!chosenModel) chosenModel = (currentProvider === 'vertex' ? 'gemini-2.5-flash' : 'gemini-3.6-flash');
+  if (!chosenModel) chosenModel = 'auto';
 
   appState.credentials.authProvider = currentProvider;
   appState.credentials.geminiKey = gemKey;

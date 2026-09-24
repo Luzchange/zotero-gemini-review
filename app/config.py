@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     )
 
     GEMINI_API_KEY: Optional[str] = None
-    GEMINI_MODEL: str = "gemini-3.6-flash"
+    GEMINI_MODEL: str = "auto"
     GEMINI_BASE_URL: Optional[str] = None
     
     # Google Cloud Vertex AI / CloudLab Settings
