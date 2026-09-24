@@ -20,12 +20,28 @@ from app.schemas.schemas import (
 logger = logging.getLogger(__name__)
 
 class GeminiService:
-    """Service handling literature analysis via Google Gemini API and OpenAI-compatible gateways (e.g. GenAI.mil)."""
+    """Service handling literature analysis via Google Gemini API, Google Cloud Vertex AI (OAuth / ADC), and OpenAI-compatible gateways (e.g. GenAI.mil)."""
 
-    def __init__(self, api_key: str, default_model: str = "gemini-3.6-flash", base_url: Optional[str] = None):
+    def __init__(
+        self,
+        api_key: Optional[str] = "",
+        default_model: str = "gemini-3.6-flash",
+        base_url: Optional[str] = None,
+        use_vertex_ai: bool = False,
+        project_id: Optional[str] = None,
+        location: str = "us-central1"
+    ):
         self.api_key = api_key.strip() if api_key else ""
         self.model = default_model or "gemini-3.6-flash"
         self.base_url = base_url.strip() if base_url else ""
+        self.use_vertex_ai = use_vertex_ai
+        self.project_id = project_id.strip() if project_id else None
+        self.location = location.strip() if location else "us-central1"
+
+        # If project_id is provided and no key is given, default to Vertex AI mode
+        if self.project_id and not self.api_key and not self.base_url:
+            self.use_vertex_ai = True
+
         # Auto-detect GenAI.mil DoD token
         if self.api_key.startswith("STARK_") and not self.base_url:
             self.base_url = "https://api.genai.mil/v1"
@@ -99,25 +115,79 @@ class GeminiService:
             raise HTTPException(status_code=502, detail=f"Failed to connect to GenAI endpoint: {str(e)}")
 
     def _get_client(self):
-        """Lazy load google-genai client."""
-        if not self.api_key:
-            raise ValueError("Gemini API Key is not set. Please provide it in .env or via X-Gemini-Key header.")
-        if self._client is None:
+        """Lazy load google-genai client, supporting both Vertex AI (OAuth / ADC) and Google AI Studio (API Key)."""
+        if self._client is not None:
+            return self._client
+
+        from google import genai
+
+        if self.use_vertex_ai:
             try:
-                from google import genai
-                self._client = genai.Client(api_key=self.api_key)
+                import google.auth
+                credentials, detected_project = google.auth.default(
+                    scopes=[
+                        "https://www.googleapis.com/auth/cloud-platform",
+                        "https://www.googleapis.com/auth/generative-language.retriever"
+                    ]
+                )
+                project = self.project_id or detected_project
+                if not project:
+                    raise ValueError(
+                        "GCP Project ID is required for Vertex AI. Please configure it in Settings or set via 'gcloud config set project <PROJECT_ID>'."
+                    )
+                self._client = genai.Client(
+                    vertexai=True,
+                    project=project,
+                    location=self.location,
+                    credentials=credentials
+                )
+                logger.info(f"Initialized google-genai Vertex AI client (project={project}, location={self.location})")
+                return self._client
             except Exception as e:
-                logger.error(f"Failed to initialize google-genai client: {e}")
-                raise e
-        return self._client
+                logger.error(f"Failed to initialize google-genai Vertex AI client: {e}")
+                err_msg = str(e)
+                if "could not automatically determine credentials" in err_msg.lower() or "defaultcredentialserror" in err_msg.lower():
+                    raise HTTPException(
+                        status_code=401,
+                        detail=(
+                            "Vertex AI Application Default Credentials (ADC) not found. "
+                            "Please run the following 3 commands in your terminal to authorize your OAuth credentials:\n"
+                            "1) gcloud auth login\n"
+                            f"2) gcloud config set project {self.project_id or 'PROJECT_ID'}\n"
+                            "3) gcloud auth application-default login --client-id-file=CLIENT_SECRET.json --scopes=\"https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/generative-language.retriever\""
+                        )
+                    )
+                raise HTTPException(status_code=500, detail=f"Vertex AI initialization failed: {err_msg}")
+
+        # AI Studio API Key mode
+        if not self.api_key:
+            raise HTTPException(
+                status_code=401,
+                detail="Gemini API Key or Vertex AI OAuth is required. Please configure credentials in Settings."
+            )
+        try:
+            self._client = genai.Client(api_key=self.api_key)
+            return self._client
+        except Exception as e:
+            logger.error(f"Failed to initialize google-genai client: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to initialize Gemini client: {str(e)}")
 
     async def list_available_models(self) -> List[Dict[str, Any]]:
-        """List available models for this API key that support generateContent."""
+        """List available models for this provider."""
         if self._is_openai_compatible():
             return [
                 {"id": "gemini-2.5-flash", "display_name": "gemini-2.5-flash (GenAI.mil)"},
                 {"id": "gemini-2.0-flash", "display_name": "gemini-2.0-flash"},
                 {"id": "gemini-1.5-flash", "display_name": "gemini-1.5-flash"},
+            ]
+
+        if self.use_vertex_ai:
+            return [
+                {"id": "gemini-2.5-flash", "display_name": "gemini-2.5-flash (Vertex AI / CloudLab Recommended)"},
+                {"id": "gemini-2.5-pro", "display_name": "gemini-2.5-pro (Vertex AI Deep Reasoning)"},
+                {"id": "gemini-2.0-flash", "display_name": "gemini-2.0-flash (Vertex AI General Purpose)"},
+                {"id": "gemini-1.5-pro", "display_name": "gemini-1.5-pro (Vertex AI Long Context)"},
+                {"id": "gemini-1.5-flash", "display_name": "gemini-1.5-flash (Vertex AI Fast)"},
             ]
 
         try:
@@ -179,6 +249,15 @@ class GeminiService:
                         await asyncio.sleep(attempt + 1.5)
                         continue
                     else:
+                        if self.use_vertex_ai and ("403" in err_str or "permissiondenied" in err_str.lower()):
+                            raise HTTPException(
+                                status_code=403,
+                                detail=(
+                                    f"Vertex AI Permission Denied for project '{self.project_id}'. "
+                                    "Please verify: 1) Vertex AI API is enabled in GCP Console, "
+                                    "and 2) your account has the 'Vertex AI User' role on this project."
+                                )
+                            )
                         # Non-transient error (e.g. 400 invalid argument or 404 not found)
                         break
 
@@ -187,7 +266,7 @@ class GeminiService:
         logger.error(f"Gemini API generation failed after retries/fallbacks: {last_error}")
         raise HTTPException(
             status_code=502,
-            detail=f"Gemini API generation failed: {str(last_error)}. If you are seeing 503 High Demand, try selecting gemini-2.0-flash or gemini-1.5-flash in Settings."
+            detail=f"Gemini generation failed: {str(last_error)}. If you are seeing 503 High Demand, try selecting gemini-2.0-flash or gemini-1.5-flash in Settings."
         )
 
     def _build_paper_summary_text(self, paper: PaperItem) -> str:

@@ -24,8 +24,14 @@ let appState = {
   literatureResults: [],
   litSource: 'pubmed',
   credentials: {
+    authProvider: localStorage.getItem('zg_auth_provider') || 'vertex',
+    useVertexAi: localStorage.getItem('zg_use_vertex_ai') !== null 
+      ? localStorage.getItem('zg_use_vertex_ai') === 'true' 
+      : (localStorage.getItem('zg_auth_provider') === 'vertex' || !localStorage.getItem('zg_gemini_key')),
+    gcpProjectId: localStorage.getItem('zg_gcp_project_id') || '',
+    gcpLocation: localStorage.getItem('zg_gcp_location') || 'us-central1',
     geminiKey: localStorage.getItem('zg_gemini_key') || '',
-    geminiModel: savedModel || 'gemini-3.6-flash',
+    geminiModel: savedModel || 'gemini-2.5-flash',
     geminiBaseUrl: localStorage.getItem('zg_gemini_base_url') || '',
     zoteroKey: localStorage.getItem('zg_zotero_key') || DEFAULT_ZOTERO_KEY,
     zoteroUserId: localStorage.getItem('zg_zotero_user_id') || DEFAULT_ZOTERO_USER_ID,
@@ -38,6 +44,11 @@ let appState = {
 // Global API helper attaching custom credentials if present
 async function apiFetch(url, options = {}) {
   const headers = options.headers || {};
+  if (appState.credentials.useVertexAi) {
+    headers['X-Use-Vertex-Ai'] = 'true';
+    if (appState.credentials.gcpProjectId) headers['X-Gcp-Project-Id'] = appState.credentials.gcpProjectId;
+    if (appState.credentials.gcpLocation) headers['X-Gcp-Location'] = appState.credentials.gcpLocation;
+  }
   if (appState.credentials.geminiKey) headers['X-Gemini-Key'] = appState.credentials.geminiKey;
   if (appState.credentials.geminiModel) headers['X-Gemini-Model'] = appState.credentials.geminiModel;
   if (appState.credentials.geminiBaseUrl) headers['X-Gemini-Base-Url'] = appState.credentials.geminiBaseUrl;
@@ -95,16 +106,21 @@ async function checkHealthAndCredentials() {
     const res = await apiFetch('/api/health');
     const health = await res.json();
 
-    if (health.gemini_configured || appState.credentials.geminiKey) {
-      const isMil = (appState.credentials.geminiBaseUrl && appState.credentials.geminiBaseUrl.includes('genai.mil')) || 
-                    (appState.credentials.geminiKey && appState.credentials.geminiKey.startsWith('STARK_'));
-      const label = isMil ? 'GenAI.mil: Ready' : 'Gemini: Ready';
+    if (health.gemini_configured || appState.credentials.geminiKey || appState.credentials.useVertexAi) {
+      let label = 'Gemini: Ready';
+      if (appState.credentials.useVertexAi) {
+        const proj = appState.credentials.gcpProjectId || health.gcp_project_id;
+        label = proj ? `Vertex AI: ${proj}` : 'Vertex AI: ADC';
+      } else if ((appState.credentials.geminiBaseUrl && appState.credentials.geminiBaseUrl.includes('genai.mil')) || 
+                 (appState.credentials.geminiKey && appState.credentials.geminiKey.startsWith('STARK_'))) {
+        label = 'GenAI.mil: Ready';
+      }
       geminiBadge.className = 'flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 cursor-pointer';
-      geminiBadge.innerHTML = `<i class="fa-solid fa-circle text-[8px] text-emerald-500"></i><span>${label}</span>`;
+      geminiBadge.innerHTML = `<i class="fa-solid fa-circle text-[8px] text-emerald-500"></i><span>${escapeHtml(label)}</span>`;
       geminiBadge.onclick = toggleSettingsModal;
     } else {
       geminiBadge.className = 'flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-medium bg-rose-50 text-rose-700 border border-rose-200 cursor-pointer';
-      geminiBadge.innerHTML = `<i class="fa-solid fa-circle text-[8px] text-rose-500"></i><span>Gemini: Missing Key</span>`;
+      geminiBadge.innerHTML = `<i class="fa-solid fa-circle text-[8px] text-rose-500"></i><span>AI: Missing Auth</span>`;
       geminiBadge.onclick = toggleSettingsModal;
     }
 
@@ -568,8 +584,91 @@ function downloadOutputMarkdown() {
 }
 
 // -------------------------------------------------------------
-// Settings Modal
+// Settings Modal & AI Provider Configuration
 // -------------------------------------------------------------
+
+function setAuthProvider(provider) {
+  appState.credentials.authProvider = provider;
+  appState.credentials.useVertexAi = (provider === 'vertex');
+
+  const tabs = {
+    vertex: document.getElementById('tab-provider-vertex'),
+    genaimil: document.getElementById('tab-provider-genaimil'),
+    aistudio: document.getElementById('tab-provider-aistudio')
+  };
+  const sections = {
+    vertex: document.getElementById('section-provider-vertex'),
+    genaimil: document.getElementById('section-provider-genaimil'),
+    aistudio: document.getElementById('section-provider-aistudio')
+  };
+
+  Object.keys(tabs).forEach(p => {
+    if (tabs[p]) {
+      if (p === provider) {
+        tabs[p].className = 'py-1.5 px-2 text-[11px] font-semibold rounded-md transition bg-white text-slate-900 shadow-sm flex items-center justify-center space-x-1 border border-slate-200';
+      } else {
+        tabs[p].className = 'py-1.5 px-2 text-[11px] font-medium rounded-md transition text-slate-600 hover:text-slate-900 flex items-center justify-center space-x-1';
+      }
+    }
+    if (sections[p]) {
+      sections[p].classList.toggle('hidden', p !== provider);
+    }
+  });
+
+  // Suggest default model based on provider
+  const modelSelect = document.getElementById('modal-gemini-model');
+  if (provider === 'vertex') {
+    if (modelSelect && (modelSelect.value.startsWith('gemini-3') || !modelSelect.value)) {
+      modelSelect.value = 'gemini-2.5-flash';
+    }
+  } else if (provider === 'genaimil') {
+    if (modelSelect) modelSelect.value = 'gemini-2.5-flash';
+  }
+}
+
+async function testVertexAIAuth() {
+  const btn = document.getElementById('btn-test-vertex');
+  const statusSpan = document.getElementById('vertex-test-status');
+  const projInput = document.getElementById('modal-gcp-project-id');
+  const locInput = document.getElementById('modal-gcp-location');
+
+  const projectId = projInput.value.trim();
+  const location = locInput.value.trim() || 'us-central1';
+
+  btn.disabled = true;
+  const originalHtml = btn.innerHTML;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> <span>Testing ADC...</span>';
+  statusSpan.className = 'text-[11px] text-slate-500 font-medium';
+  statusSpan.textContent = 'Verifying local OAuth credentials...';
+
+  try {
+    const headers = {
+      'Content-Type': 'application/json',
+      'X-Use-Vertex-Ai': 'true',
+      'X-Gcp-Location': location
+    };
+    if (projectId) headers['X-Gcp-Project-Id'] = projectId;
+
+    const res = await fetch('/api/review/verify-vertex', {
+      method: 'POST',
+      headers
+    });
+    const data = await res.json();
+    if (data.success) {
+      statusSpan.className = 'text-[11px] text-emerald-600 font-medium';
+      statusSpan.innerHTML = `<i class="fa-solid fa-circle-check"></i> Connected to ${escapeHtml(data.project_id)}!`;
+    } else {
+      statusSpan.className = 'text-[11px] text-rose-600 font-medium';
+      statusSpan.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> ${escapeHtml(data.message || 'Verification failed.')}`;
+    }
+  } catch (err) {
+    statusSpan.className = 'text-[11px] text-rose-600 font-medium';
+    statusSpan.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Check failed: ${escapeHtml(err.message)}`;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
+  }
+}
 
 function toggleSettingsModal() {
   const modal = document.getElementById('settings-modal');
@@ -578,12 +677,36 @@ function toggleSettingsModal() {
   if (!modal.classList.contains('hidden')) {
     const keyInput = document.getElementById('modal-gemini-key');
     const urlInput = document.getElementById('modal-gemini-base-url');
+    const gcpProjectInput = document.getElementById('modal-gcp-project-id');
+    const gcpLocationInput = document.getElementById('modal-gcp-location');
+    const genaiMilKeyInput = document.getElementById('modal-genaimil-key');
+    const genaiMilUrlInput = document.getElementById('modal-genaimil-base-url');
     const modelSelect = document.getElementById('modal-gemini-model');
     const customModelInput = document.getElementById('modal-gemini-model-custom');
-    const currentModel = appState.credentials.geminiModel || 'gemini-3.6-flash';
+    const currentModel = appState.credentials.geminiModel || 'gemini-2.5-flash';
+
+    gcpProjectInput.value = appState.credentials.gcpProjectId || '';
+    gcpLocationInput.value = appState.credentials.gcpLocation || 'us-central1';
+    
+    // Command helper dynamic project ID
+    const cmdProj = document.getElementById('cmd-proj-id');
+    if (cmdProj) {
+      cmdProj.textContent = gcpProjectInput.value.trim() || '<PROJECT_ID>';
+      gcpProjectInput.oninput = () => {
+        cmdProj.textContent = gcpProjectInput.value.trim() || '<PROJECT_ID>';
+      };
+    }
 
     keyInput.value = appState.credentials.geminiKey || '';
     urlInput.value = appState.credentials.geminiBaseUrl || '';
+
+    if (genaiMilKeyInput) {
+      genaiMilKeyInput.value = (appState.credentials.geminiKey && appState.credentials.geminiKey.startsWith('STARK_')) ? appState.credentials.geminiKey : '';
+    }
+    if (genaiMilUrlInput) {
+      genaiMilUrlInput.value = appState.credentials.geminiBaseUrl || 'https://api.genai.mil/v1';
+    }
+
     document.getElementById('modal-zotero-key').value = appState.credentials.zoteroKey || '';
     document.getElementById('modal-zotero-user-id').value = appState.credentials.zoteroUserId || '';
     document.getElementById('modal-zotero-lib-type').value = appState.credentials.zoteroLibType || 'user';
@@ -623,21 +746,41 @@ function toggleSettingsModal() {
         urlInput.value = 'https://api.genai.mil/v1';
       }
     };
+
+    // Determine initial provider tab
+    const prov = appState.credentials.authProvider || 
+      (appState.credentials.useVertexAi ? 'vertex' : (appState.credentials.geminiKey.startsWith('STARK_') ? 'genaimil' : 'vertex'));
+    setAuthProvider(prov);
   }
 }
 
 async function saveSettingsFromModal() {
-  let gemKey = document.getElementById('modal-gemini-key').value.trim();
-  let gemBaseUrl = document.getElementById('modal-gemini-base-url').value.trim();
-  if (gemKey.startsWith('STARK_') && !gemBaseUrl) {
-    gemBaseUrl = 'https://api.genai.mil/v1';
+  const currentProvider = appState.credentials.authProvider || 'vertex';
+  let gemKey = '';
+  let gemBaseUrl = '';
+  let gcpProj = document.getElementById('modal-gcp-project-id').value.trim();
+  let gcpLoc = document.getElementById('modal-gcp-location').value.trim() || 'us-central1';
+
+  if (currentProvider === 'vertex') {
+    appState.credentials.useVertexAi = true;
+    appState.credentials.gcpProjectId = gcpProj;
+    appState.credentials.gcpLocation = gcpLoc;
+  } else if (currentProvider === 'genaimil') {
+    appState.credentials.useVertexAi = false;
+    gemKey = document.getElementById('modal-genaimil-key').value.trim();
+    gemBaseUrl = document.getElementById('modal-genaimil-base-url').value.trim() || 'https://api.genai.mil/v1';
+  } else {
+    appState.credentials.useVertexAi = false;
+    gemKey = document.getElementById('modal-gemini-key').value.trim();
+    gemBaseUrl = document.getElementById('modal-gemini-base-url').value.trim();
   }
 
   const modelSelect = document.getElementById('modal-gemini-model');
   const customModelInput = document.getElementById('modal-gemini-model-custom');
   let chosenModel = modelSelect.value === 'custom' ? customModelInput.value.trim() : modelSelect.value;
-  if (!chosenModel) chosenModel = 'gemini-3.6-flash';
+  if (!chosenModel) chosenModel = (currentProvider === 'vertex' ? 'gemini-2.5-flash' : 'gemini-3.6-flash');
 
+  appState.credentials.authProvider = currentProvider;
   appState.credentials.geminiKey = gemKey;
   appState.credentials.geminiBaseUrl = gemBaseUrl;
   appState.credentials.geminiModel = chosenModel;
@@ -647,6 +790,10 @@ async function saveSettingsFromModal() {
   appState.credentials.ncbiKey = document.getElementById('modal-ncbi-key').value.trim();
   appState.credentials.schoolProxy = document.getElementById('modal-school-proxy').value.trim();
 
+  localStorage.setItem('zg_auth_provider', currentProvider);
+  localStorage.setItem('zg_use_vertex_ai', appState.credentials.useVertexAi ? 'true' : 'false');
+  localStorage.setItem('zg_gcp_project_id', appState.credentials.gcpProjectId);
+  localStorage.setItem('zg_gcp_location', appState.credentials.gcpLocation);
   localStorage.setItem('zg_gemini_key', appState.credentials.geminiKey);
   localStorage.setItem('zg_gemini_base_url', appState.credentials.geminiBaseUrl);
   localStorage.setItem('zg_gemini_model', appState.credentials.geminiModel);
@@ -665,23 +812,14 @@ async function saveSettingsFromModal() {
 async function fetchAvailableModels() {
   const btn = document.getElementById('btn-refresh-models');
   const modelSelect = document.getElementById('modal-gemini-model');
-  const tempKey = document.getElementById('modal-gemini-key').value.trim() || appState.credentials.geminiKey;
-  const tempBaseUrl = document.getElementById('modal-gemini-base-url').value.trim() || appState.credentials.geminiBaseUrl;
-
-  if (!tempKey) {
-    alert('Please enter your API Key first before refreshing models.');
-    return;
-  }
+  const currentProvider = appState.credentials.authProvider || 'vertex';
 
   const originalHtml = btn.innerHTML;
   btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> <span>Fetching...</span>';
   btn.disabled = true;
 
   try {
-    const headers = { 'X-Gemini-Key': tempKey };
-    if (tempBaseUrl) headers['X-Gemini-Base-Url'] = tempBaseUrl;
-
-    const res = await fetch('/api/review/models', { headers });
+    const res = await apiFetch('/api/review/models');
     if (!res.ok) {
       const err = await parseErrorMessage(res);
       alert(`Could not fetch models: ${err}`);
@@ -726,10 +864,10 @@ async function fetchAvailableModels() {
       }
     }
   } catch (err) {
-    alert(`Error: ${err.message}`);
+    alert(`Error fetching models: ${err.message}`);
   } finally {
-    btn.innerHTML = originalHtml;
     btn.disabled = false;
+    btn.innerHTML = originalHtml;
   }
 }
 

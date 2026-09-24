@@ -23,22 +23,71 @@ router = APIRouter(prefix="/api/review", tags=["Literature Review"])
 
 @router.get("/models")
 async def list_models(request: Request):
-    """List available models for the configured Gemini key."""
+    """List available models for the configured provider."""
     service = get_gemini_service(request)
     models = await service.list_available_models()
     return {"models": models}
 
+@router.post("/verify-vertex")
+async def verify_vertex(request: Request):
+    """Test Vertex AI Application Default Credentials and project setup."""
+    creds = get_credentials(request)
+    project_id = creds.get("gcp_project_id")
+    location = creds.get("gcp_location", "us-central1")
+    
+    try:
+        import google.auth
+        credentials, detected_project = google.auth.default(
+            scopes=[
+                "https://www.googleapis.com/auth/cloud-platform",
+                "https://www.googleapis.com/auth/generative-language.retriever"
+            ]
+        )
+        actual_project = project_id or detected_project
+        if not actual_project:
+            return {
+                "success": False,
+                "project_id": None,
+                "message": "Application Default Credentials found, but GCP Project ID is missing. Please enter your CloudLab Project ID."
+            }
+        
+        from google import genai
+        # Test client creation
+        client = genai.Client(
+            vertexai=True,
+            project=actual_project,
+            location=location,
+            credentials=credentials
+        )
+        return {
+            "success": True,
+            "project_id": actual_project,
+            "location": location,
+            "message": f"Successfully authenticated Vertex AI with project '{actual_project}' via Application Default Credentials (ADC)!"
+        }
+    except Exception as e:
+        err_str = str(e)
+        logger.warning(f"Vertex AI verification failed: {err_str}")
+        return {
+            "success": False,
+            "project_id": project_id,
+            "message": f"Vertex AI ADC check failed: {err_str}. Please run 'gcloud auth application-default login' in terminal."
+        }
+
 def get_gemini_service(request: Request) -> GeminiService:
     creds = get_credentials(request)
-    if not creds["gemini_key"]:
+    if not creds.get("gemini_key") and not creds.get("use_vertex_ai"):
         raise HTTPException(
             status_code=400,
-            detail="Gemini API Key is missing. Set GEMINI_API_KEY in .env or pass X-Gemini-Key header."
+            detail="Gemini credentials missing. Please set your Gemini API Key or enable Vertex AI OAuth in Settings."
         )
     return GeminiService(
-        api_key=creds["gemini_key"],
-        default_model=creds["gemini_model"],
-        base_url=creds.get("gemini_base_url")
+        api_key=creds.get("gemini_key") or "",
+        default_model=creds.get("gemini_model") or "gemini-3.6-flash",
+        base_url=creds.get("gemini_base_url"),
+        use_vertex_ai=creds.get("use_vertex_ai", False),
+        project_id=creds.get("gcp_project_id"),
+        location=creds.get("gcp_location", "us-central1")
     )
 
 def get_zotero_service(request: Request) -> ZoteroService:

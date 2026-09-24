@@ -89,17 +89,20 @@ async def import_external_article_to_zotero(payload: ImportExternalToZoteroReque
 async def review_external_article(payload: ReviewExternalArticleRequest, request: Request):
     """Synthesize and critique an external literature article with Gemini."""
     creds = get_credentials(request)
-    if not creds.get("gemini_key"):
+    if not creds.get("gemini_key") and not creds.get("use_vertex_ai"):
         raise HTTPException(
             status_code=401,
-            detail="Gemini API Key is required. Please set it in Settings."
+            detail="Gemini API Key or Vertex AI OAuth is required. Please set it in Settings."
         )
 
     art = payload.article
     gemini_svc = GeminiService(
-        api_key=creds["gemini_key"],
+        api_key=creds.get("gemini_key") or "",
         default_model=payload.model or creds["gemini_model"],
-        base_url=creds.get("gemini_base_url")
+        base_url=creds.get("gemini_base_url"),
+        use_vertex_ai=creds.get("use_vertex_ai", False),
+        project_id=creds.get("gcp_project_id"),
+        location=creds.get("gcp_location", "us-central1")
     )
 
     formatted_text = f"""

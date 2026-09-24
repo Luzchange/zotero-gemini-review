@@ -32,9 +32,11 @@ def test_markdown_to_zotero_html():
 
 @pytest.mark.asyncio
 async def test_gemini_service_missing_key():
+    from fastapi import HTTPException
     service = GeminiService(api_key="")
-    with pytest.raises(ValueError, match="Gemini API Key is not set"):
+    with pytest.raises(HTTPException) as exc_info:
         service._get_client()
+    assert exc_info.value.status_code == 401
 
 def test_gemini_service_genai_mil_auto_detect():
     service = GeminiService(api_key="STARK_test12345")
@@ -115,6 +117,65 @@ async def test_gemini_service_503_fallback(monkeypatch):
     assert result == "Fallback Success Review"
     assert "gemini-3.6-flash" in calls
     assert "gemini-2.0-flash" in calls
+
+def test_vertex_ai_auto_detect_from_project_id():
+    service = GeminiService(project_id="afrl-sandbox-12345")
+    assert service.use_vertex_ai is True
+    assert service.project_id == "afrl-sandbox-12345"
+    assert service.location == "us-central1"
+
+@pytest.mark.asyncio
+async def test_vertex_ai_list_available_models():
+    service = GeminiService(use_vertex_ai=True, project_id="my-project")
+    models = await service.list_available_models()
+    model_ids = [m["id"] for m in models]
+    assert "gemini-2.5-flash" in model_ids
+    assert "gemini-2.5-pro" in model_ids
+    assert "gemini-2.0-flash" in model_ids
+
+def test_vertex_ai_client_initialization_mocked(monkeypatch):
+    import google.auth
+    from google import genai
+
+    captured_kwargs = {}
+
+    class MockCredentials:
+        pass
+
+    def mock_default(scopes=None):
+        return MockCredentials(), "detected-proj-999"
+
+    class MockGenAIClient:
+        def __init__(self, **kwargs):
+            captured_kwargs.update(kwargs)
+
+    monkeypatch.setattr(google.auth, "default", mock_default)
+    monkeypatch.setattr(genai, "Client", MockGenAIClient)
+
+    service = GeminiService(use_vertex_ai=True, project_id="afrl-cloudlab-project", location="us-east4")
+    client = service._get_client()
+
+    assert captured_kwargs.get("vertexai") is True
+    assert captured_kwargs.get("project") == "afrl-cloudlab-project"
+    assert captured_kwargs.get("location") == "us-east4"
+    assert isinstance(captured_kwargs.get("credentials"), MockCredentials)
+
+def test_vertex_ai_missing_adc_error(monkeypatch):
+    import google.auth
+    from google.auth.exceptions import DefaultCredentialsError
+    from fastapi import HTTPException
+
+    def mock_default_err(scopes=None):
+        raise DefaultCredentialsError("Could not automatically determine credentials.")
+
+    monkeypatch.setattr(google.auth, "default", mock_default_err)
+
+    service = GeminiService(use_vertex_ai=True, project_id="afrl-sandbox")
+    with pytest.raises(HTTPException) as exc_info:
+        service._get_client()
+
+    assert exc_info.value.status_code == 401
+    assert "gcloud auth application-default login" in exc_info.value.detail
 
 
 

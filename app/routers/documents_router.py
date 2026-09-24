@@ -120,10 +120,10 @@ async def review_document(request: Request, body: WorkDocumentReviewRequest):
     By default, automatically imports document and attaches review note to Zotero if credentials exist.
     """
     creds = get_credentials(request)
-    if not creds.get("gemini_key"):
+    if not creds.get("gemini_key") and not creds.get("use_vertex_ai"):
         raise HTTPException(
             status_code=401,
-            detail="Gemini API Key is required. Please set it in Settings."
+            detail="Gemini API Key or Vertex AI OAuth is required. Please configure it in Settings."
         )
 
     doc = UPLOADED_DOCUMENTS.get(body.document_id)
@@ -131,9 +131,12 @@ async def review_document(request: Request, body: WorkDocumentReviewRequest):
         raise HTTPException(status_code=404, detail="Document not found or session expired. Please re-upload.")
 
     gemini_svc = GeminiService(
-        api_key=creds["gemini_key"],
+        api_key=creds.get("gemini_key") or "",
         default_model=body.model or creds["gemini_model"],
-        base_url=creds.get("gemini_base_url")
+        base_url=creds.get("gemini_base_url"),
+        use_vertex_ai=creds.get("use_vertex_ai", False),
+        project_id=creds.get("gcp_project_id"),
+        location=creds.get("gcp_location", "us-central1")
     )
 
     review_md, zotero_html = await gemini_svc.review_work_document(
@@ -198,17 +201,20 @@ async def review_document(request: Request, body: WorkDocumentReviewRequest):
 async def chat_documents(request: Request, body: WorkDocumentChatRequest):
     """Grounded interactive Q&A against one or more uploaded work documents."""
     creds = get_credentials(request)
-    if not creds.get("gemini_key"):
-        raise HTTPException(status_code=401, detail="Gemini API Key is required.")
+    if not creds.get("gemini_key") and not creds.get("use_vertex_ai"):
+        raise HTTPException(status_code=401, detail="Gemini API Key or Vertex AI OAuth is required.")
 
     selected_docs = [UPLOADED_DOCUMENTS[d_id] for d_id in body.document_ids if d_id in UPLOADED_DOCUMENTS]
     if not selected_docs:
         raise HTTPException(status_code=400, detail="No valid uploaded documents selected.")
 
     gemini_svc = GeminiService(
-        api_key=creds["gemini_key"],
+        api_key=creds.get("gemini_key") or "",
         default_model=body.model or creds["gemini_model"],
-        base_url=creds.get("gemini_base_url")
+        base_url=creds.get("gemini_base_url"),
+        use_vertex_ai=creds.get("use_vertex_ai", False),
+        project_id=creds.get("gcp_project_id"),
+        location=creds.get("gcp_location", "us-central1")
     )
 
     answer = await gemini_svc.chat_with_work_documents(

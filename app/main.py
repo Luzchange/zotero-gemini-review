@@ -76,9 +76,11 @@ async def home(request: Request):
     """Render the interactive literature review dashboard."""
     creds = get_credentials(request)
     context = {
-        "has_gemini_key": bool(creds.get("gemini_key")),
+        "has_gemini_key": bool(creds.get("gemini_key")) or bool(creds.get("use_vertex_ai")),
         "has_zotero_creds": bool(creds.get("zotero_key") and creds.get("zotero_user_id")),
-        "default_model": creds.get("gemini_model", "gemini-3.6-flash")
+        "default_model": creds.get("gemini_model", "gemini-3.6-flash"),
+        "use_vertex_ai": bool(creds.get("use_vertex_ai")),
+        "gcp_project_id": creds.get("gcp_project_id") or ""
     }
 
     if templates:
@@ -110,9 +112,12 @@ async def health_check(request: Request):
         "status": "online",
         "app": "GResearch",
         "version": "1.0.0",
-        "gemini_configured": bool(creds.get("gemini_key")),
+        "gemini_configured": bool(creds.get("gemini_key")) or bool(creds.get("use_vertex_ai")),
         "gemini_model": creds.get("gemini_model"),
         "gemini_base_url": creds.get("gemini_base_url"),
+        "use_vertex_ai": bool(creds.get("use_vertex_ai")),
+        "gcp_project_id": creds.get("gcp_project_id"),
+        "gcp_location": creds.get("gcp_location"),
         "zotero_configured": bool(creds.get("zotero_key") and creds.get("zotero_user_id")),
         "zotero_user_id": creds.get("zotero_user_id") if creds.get("zotero_user_id") else None,
         "library_type": creds.get("zotero_library_type")

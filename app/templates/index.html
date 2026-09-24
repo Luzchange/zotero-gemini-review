@@ -383,100 +383,213 @@
 
   <!-- Settings Modal -->
   <div id="settings-modal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
-    <div class="bg-white rounded-xl max-w-md w-full shadow-2xl border border-slate-200 p-6 space-y-4">
+    <div class="bg-white rounded-xl max-w-lg w-full max-h-[92vh] overflow-y-auto shadow-2xl border border-slate-200 p-6 space-y-4 scrollbar-thin">
       <div class="flex items-center justify-between border-b border-slate-100 pb-3">
         <h3 class="font-bold text-slate-900 text-sm flex items-center space-x-2">
           <i class="fa-solid fa-sliders text-blue-600"></i>
-          <span>API Credentials & Settings</span>
+          <span>API Credentials & AI Provider</span>
         </h3>
         <button onclick="toggleSettingsModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
       </div>
 
-      <div class="space-y-3 text-xs">
+      <div class="space-y-4 text-xs">
+        <!-- AI Provider Selector -->
         <div>
-          <label class="block font-medium text-slate-700 mb-1">API Key / Token</label>
-          <input type="password" id="modal-gemini-key" placeholder="AIzaSy... or STARK_..." class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
-          <p class="text-[10px] text-slate-500 mt-0.5">Google AI Studio key (<code class="text-blue-600">AIzaSy...</code>) or GenAI.mil token (<code class="text-blue-600">STARK_...</code>).</p>
+          <label class="block font-semibold text-slate-700 mb-1.5">Select AI Authentication Method</label>
+          <div class="grid grid-cols-3 gap-1.5 bg-slate-100 p-1 rounded-lg">
+            <button type="button" id="tab-provider-vertex" onclick="setAuthProvider('vertex')" class="py-1.5 px-2 text-[11px] font-medium rounded-md transition text-slate-600 hover:text-slate-900 flex items-center justify-center space-x-1">
+              <i class="fa-solid fa-cloud text-blue-600"></i>
+              <span>Vertex AI / CloudLab</span>
+            </button>
+            <button type="button" id="tab-provider-genaimil" onclick="setAuthProvider('genaimil')" class="py-1.5 px-2 text-[11px] font-medium rounded-md transition text-slate-600 hover:text-slate-900 flex items-center justify-center space-x-1">
+              <i class="fa-solid fa-shield text-emerald-600"></i>
+              <span>GenAI.mil</span>
+            </button>
+            <button type="button" id="tab-provider-aistudio" onclick="setAuthProvider('aistudio')" class="py-1.5 px-2 text-[11px] font-medium rounded-md transition text-slate-600 hover:text-slate-900 flex items-center justify-center space-x-1">
+              <i class="fa-solid fa-key text-amber-600"></i>
+              <span>AI Studio Key</span>
+            </button>
+          </div>
         </div>
 
-        <div>
-          <label class="block font-medium text-slate-700 mb-1">API Endpoint / Base URL <span class="text-slate-400 font-normal">(Optional)</span></label>
-          <input type="text" id="modal-gemini-base-url" placeholder="https://api.genai.mil/v1 (or leave blank for Google AI Studio)" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
-          <p class="text-[10px] text-slate-500 mt-0.5">Use <code class="text-blue-600">https://api.genai.mil/v1</code> for GenAI.mil, or leave empty for standard Google AI Studio.</p>
+        <!-- 1. Vertex AI / CloudLab OAuth Section -->
+        <div id="section-provider-vertex" class="space-y-3 bg-blue-50/40 p-3 rounded-lg border border-blue-100">
+          <div class="flex items-start justify-between">
+            <div>
+              <h4 class="font-bold text-slate-800 text-xs flex items-center space-x-1.5">
+                <i class="fa-solid fa-shield-halved text-blue-600"></i>
+                <span>Google Cloud Vertex AI (OAuth / ADC)</span>
+              </h4>
+              <p class="text-[11px] text-slate-600 mt-0.5">Approved for AFRL CloudLab sandbox projects & DREN workstations where API keys are disallowed.</p>
+            </div>
+            <a href="https://cloudlab.app.afresearchlab.com" target="_blank" class="text-[10px] text-blue-600 hover:underline flex items-center space-x-1 shrink-0">
+              <span>CloudLab ↗</span>
+            </a>
+          </div>
+
+          <div>
+            <label class="block font-medium text-slate-700 mb-1">GCP / CloudLab Project ID <span class="text-rose-500">*</span></label>
+            <input type="text" id="modal-gcp-project-id" placeholder="e.g. afrl-sandbox-proj-12345" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white">
+            <p class="text-[10px] text-slate-500 mt-0.5">Your Google Cloud / CloudLab project ID where the Vertex AI API is enabled.</p>
+          </div>
+
+          <div>
+            <label class="block font-medium text-slate-700 mb-1">GCP Location / Region</label>
+            <input type="text" id="modal-gcp-location" placeholder="us-central1" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white">
+          </div>
+
+          <!-- Quick Terminal Commands Guide -->
+          <div class="bg-white p-2.5 rounded border border-blue-200 text-[11px] space-y-1.5 text-slate-700">
+            <div class="font-semibold text-slate-800 flex items-center space-x-1">
+              <i class="fa-solid fa-terminal text-slate-500 text-[10px]"></i>
+              <span>One-Time Local OAuth Setup (Terminal)</span>
+            </div>
+            <ol class="list-decimal pl-4 space-y-1 text-[10px] font-mono text-slate-600">
+              <li>gcloud auth login</li>
+              <li>gcloud config set project <span id="cmd-proj-id" class="text-blue-700 font-bold">&lt;PROJECT_ID&gt;</span></li>
+              <li>gcloud auth application-default login --client-id-file=CLIENT_SECRET.json --scopes="https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/generative-language.retriever"</li>
+            </ol>
+            <p class="text-[10px] text-slate-500">Run from your folder containing the downloaded OAuth <code class="bg-slate-100 px-1 py-0.5 rounded">CLIENT_SECRET.json</code>.</p>
+          </div>
+
+          <div class="flex items-center space-x-2 pt-1">
+            <button type="button" onclick="testVertexAIAuth()" id="btn-test-vertex" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-medium flex items-center space-x-1.5 transition">
+              <i class="fa-solid fa-bolt"></i>
+              <span>Test ADC Authentication</span>
+            </button>
+            <span id="vertex-test-status" class="text-[11px] font-medium"></span>
+          </div>
         </div>
 
+        <!-- 2. GenAI.mil Section -->
+        <div id="section-provider-genaimil" class="space-y-3 bg-emerald-50/40 p-3 rounded-lg border border-emerald-100 hidden">
+          <div>
+            <h4 class="font-bold text-slate-800 text-xs flex items-center space-x-1.5">
+              <i class="fa-solid fa-shield text-emerald-600"></i>
+              <span>GenAI.mil DoD Enterprise Gateway</span>
+            </h4>
+            <p class="text-[11px] text-slate-600 mt-0.5">For military and defense networks (requires DoD/DoW network or VPN connection).</p>
+          </div>
+
+          <div>
+            <label class="block font-medium text-slate-700 mb-1">GenAI.mil Token (STARK_...)</label>
+            <input type="password" id="modal-genaimil-key" placeholder="STARK_..." class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-emerald-500 focus:outline-none bg-white">
+          </div>
+
+          <div>
+            <label class="block font-medium text-slate-700 mb-1">API Base URL</label>
+            <input type="text" id="modal-genaimil-base-url" value="https://api.genai.mil/v1" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-emerald-500 focus:outline-none bg-white">
+          </div>
+        </div>
+
+        <!-- 3. Google AI Studio Section -->
+        <div id="section-provider-aistudio" class="space-y-3 bg-amber-50/40 p-3 rounded-lg border border-amber-100 hidden">
+          <div>
+            <h4 class="font-bold text-slate-800 text-xs flex items-center space-x-1.5">
+              <i class="fa-solid fa-key text-amber-600"></i>
+              <span>Google AI Studio (Direct API Key)</span>
+            </h4>
+            <p class="text-[11px] text-slate-600 mt-0.5">Use for personal development or environments where API keys are permitted.</p>
+          </div>
+
+          <div>
+            <label class="block font-medium text-slate-700 mb-1">Gemini API Key (AIzaSy...)</label>
+            <input type="password" id="modal-gemini-key" placeholder="AIzaSy..." class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-amber-500 focus:outline-none bg-white">
+          </div>
+
+          <div>
+            <label class="block font-medium text-slate-700 mb-1">API Endpoint / Base URL <span class="text-slate-400 font-normal">(Optional)</span></label>
+            <input type="text" id="modal-gemini-base-url" placeholder="Leave blank for Google AI Studio" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-amber-500 focus:outline-none bg-white">
+          </div>
+        </div>
+
+        <!-- Model Selection -->
         <div>
           <div class="flex items-center justify-between mb-1">
-            <label class="block font-medium text-slate-700">Model</label>
+            <label class="block font-semibold text-slate-700">Model Selection</label>
             <button type="button" onclick="fetchAvailableModels()" id="btn-refresh-models" class="text-[10px] text-blue-600 hover:text-blue-800 font-normal flex items-center space-x-1 cursor-pointer">
               <i class="fa-solid fa-arrows-rotate"></i>
               <span>Refresh Models from API</span>
             </button>
           </div>
-          <select id="modal-gemini-model" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
-            <option value="gemini-3.6-flash">gemini-3.6-flash (Latest & Recommended by Google)</option>
+          <select id="modal-gemini-model" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white">
+            <option value="gemini-2.5-flash">gemini-2.5-flash (Vertex AI / CloudLab Recommended)</option>
+            <option value="gemini-2.5-pro">gemini-2.5-pro (Vertex AI Deep Reasoning)</option>
+            <option value="gemini-3.6-flash">gemini-3.6-flash (Google AI Studio Latest)</option>
             <option value="gemini-2.0-flash">gemini-2.0-flash (General Purpose)</option>
             <option value="gemini-2.0-flash-lite">gemini-2.0-flash-lite (Fast & Light)</option>
             <option value="gemini-1.5-flash">gemini-1.5-flash (High Rate Limit)</option>
             <option value="gemini-1.5-pro">gemini-1.5-pro (Long Context Literature)</option>
-            <option value="gemini-2.5-flash">gemini-2.5-flash (GenAI.mil / Legacy)</option>
-            <option value="gemini-2.5-pro">gemini-2.5-pro</option>
             <option value="custom">-- Custom Model Name --</option>
           </select>
-          <input type="text" id="modal-gemini-model-custom" placeholder="e.g. gemini-3.6-flash" class="hidden mt-1.5 w-full p-2 border border-blue-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none bg-blue-50/30 text-xs">
-          <p class="text-[10px] text-slate-500 mt-0.5">Use <code class="text-blue-600 font-semibold">gemini-3.6-flash</code> for standard Google AI Studio, or click "Refresh Models" to pull active models.</p>
+          <input type="text" id="modal-gemini-model-custom" placeholder="e.g. gemini-2.5-flash" class="hidden mt-1.5 w-full p-2 border border-blue-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none bg-blue-50/30 text-xs">
         </div>
 
         <hr class="border-slate-100">
 
+        <!-- Zotero Settings -->
         <div>
-          <label class="block font-medium text-slate-700 mb-1">Zotero User ID</label>
-          <input type="text" id="modal-zotero-user-id" placeholder="e.g. 12345678" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
-          <p class="text-[10px] text-slate-500 mt-0.5">Found at <a href="https://www.zotero.org/settings/keys" target="_blank" class="text-blue-600 underline">zotero.org/settings/keys</a> (shown as 'Your userID for use in API calls is ...').</p>
-        </div>
+          <h4 class="font-semibold text-slate-800 mb-2 flex items-center space-x-1.5">
+            <i class="fa-solid fa-book-bookmark text-indigo-600"></i>
+            <span>Zotero Configuration</span>
+          </h4>
+          <div class="space-y-2.5">
+            <div>
+              <label class="block font-medium text-slate-700 mb-1">Zotero User ID</label>
+              <input type="text" id="modal-zotero-user-id" placeholder="e.g. 5425893" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white">
+              <p class="text-[10px] text-slate-500 mt-0.5">Found at <a href="https://www.zotero.org/settings/keys" target="_blank" class="text-blue-600 underline">zotero.org/settings/keys</a>.</p>
+            </div>
 
-        <div>
-          <label class="block font-medium text-slate-700 mb-1">Zotero API Key</label>
-          <input type="password" id="modal-zotero-key" placeholder="Zotero API Key" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
-          <p class="text-[10px] text-slate-500 mt-0.5">Create key with Library Read/Write and Notes permissions.</p>
-        </div>
+            <div>
+              <label class="block font-medium text-slate-700 mb-1">Zotero API Key</label>
+              <input type="password" id="modal-zotero-key" placeholder="Zotero API Key" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white">
+            </div>
 
-        <div>
-          <label class="block font-medium text-slate-700 mb-1">Library Type</label>
-          <select id="modal-zotero-lib-type" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
-            <option value="user">User Library</option>
-            <option value="group">Group Library</option>
-          </select>
+            <div>
+              <label class="block font-medium text-slate-700 mb-1">Library Type</label>
+              <select id="modal-zotero-lib-type" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white">
+                <option value="user">User Library</option>
+                <option value="group">Group Library</option>
+              </select>
+            </div>
+          </div>
         </div>
 
         <hr class="border-slate-100">
 
         <!-- PubMed & JSTOR Institutional Access Settings -->
         <div>
-          <label class="block font-medium text-slate-700 mb-1 flex items-center justify-between">
-            <span>PubMed API Key <span class="text-slate-400 font-normal">(Optional)</span></span>
-            <span class="text-[10px] text-emerald-600 font-medium">Free / 3 req/s without key</span>
-          </label>
-          <input type="password" id="modal-ncbi-key" placeholder="Optional NCBI PubMed API key" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
-          <p class="text-[10px] text-slate-500 mt-0.5">Increases rate limit from 3 to 10 req/sec. Works automatically without a key.</p>
-        </div>
+          <h4 class="font-semibold text-slate-800 mb-2 flex items-center space-x-1.5">
+            <i class="fa-solid fa-graduation-cap text-sky-600"></i>
+            <span>Literature Discovery & University Access</span>
+          </h4>
+          <div class="space-y-2.5">
+            <div>
+              <label class="block font-medium text-slate-700 mb-1 flex items-center justify-between">
+                <span>PubMed API Key <span class="text-slate-400 font-normal">(Optional)</span></span>
+                <span class="text-[10px] text-emerald-600 font-medium">Free / 3 req/s without key</span>
+              </label>
+              <input type="password" id="modal-ncbi-key" placeholder="Optional NCBI PubMed API key" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white">
+            </div>
 
-        <div>
-          <div class="flex items-center justify-between mb-1">
-            <label class="block font-medium text-slate-700">School / University Proxy Prefix <span class="text-slate-400 font-normal">(JSTOR)</span></label>
-            <a href="https://www.jstor.org/institutionSearch" target="_blank" class="text-[10px] text-blue-600 hover:text-blue-800 underline font-normal flex items-center space-x-1">
-              <i class="fa-solid fa-graduation-cap"></i>
-              <span>Log in with School on JSTOR ↗</span>
-            </a>
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <label class="block font-medium text-slate-700">University / School Proxy Prefix <span class="text-slate-400 font-normal">(JSTOR)</span></label>
+                <a href="https://www.jstor.org/institutionSearch" target="_blank" class="text-[10px] text-blue-600 hover:text-blue-800 underline font-normal flex items-center space-x-1">
+                  <i class="fa-solid fa-graduation-cap"></i>
+                  <span>Log in on JSTOR ↗</span>
+                </a>
+              </div>
+              <input type="text" id="modal-school-proxy" placeholder="e.g. https://proxy.lib.school.edu/login?url=" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white">
+              <p class="text-[10px] text-slate-500 mt-0.5">Routes JSTOR article links through your institution's EZProxy so full texts open authenticated.</p>
+            </div>
           </div>
-          <input type="text" id="modal-school-proxy" placeholder="e.g. https://proxy.lib.school.edu/login?url=" class="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
-          <p class="text-[10px] text-slate-500 mt-0.5">Enter your university's EZProxy prefix so JSTOR articles open authenticated with your student/faculty login.</p>
         </div>
       </div>
 
       <div class="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100">
         <button onclick="toggleSettingsModal()" class="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded">Cancel</button>
-        <button onclick="saveSettingsFromModal()" class="px-4 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded shadow-sm">Save & Re-test</button>
+        <button onclick="saveSettingsFromModal()" class="px-4 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded shadow-sm">Save & Apply</button>
       </div>
     </div>
   </div>

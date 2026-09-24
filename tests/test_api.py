@@ -45,7 +45,7 @@ def test_review_paper_missing_gemini_key():
     )
     # Gemini key is missing, should return 400
     assert response.status_code == 400
-    assert "Gemini API Key is missing" in response.json()["detail"]
+    assert "Gemini credentials missing" in response.json()["detail"]
 
 @pytest.mark.asyncio
 async def test_review_paper_flow_mocked(monkeypatch, sample_paper):
@@ -106,4 +106,47 @@ async def test_list_models_endpoint(monkeypatch):
     data = response.json()
     assert "models" in data
     assert data["models"][0]["id"] == "gemini-3.6-flash"
+
+def test_verify_vertex_endpoint_success(monkeypatch):
+    import google.auth
+    from google import genai
+
+    class MockCredentials:
+        pass
+
+    monkeypatch.setattr(google.auth, "default", lambda scopes=None: (MockCredentials(), "afrl-sandbox-12345"))
+    monkeypatch.setattr(genai, "Client", lambda **kwargs: None)
+
+    response = client.post(
+        "/api/review/verify-vertex",
+        headers={
+            "x-use-vertex-ai": "true",
+            "x-gcp-project-id": "afrl-sandbox-12345"
+        }
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["project_id"] == "afrl-sandbox-12345"
+
+def test_verify_vertex_endpoint_failure(monkeypatch):
+    import google.auth
+    from google.auth.exceptions import DefaultCredentialsError
+
+    def mock_fail(scopes=None):
+        raise DefaultCredentialsError("Credentials not found")
+
+    monkeypatch.setattr(google.auth, "default", mock_fail)
+
+    response = client.post(
+        "/api/review/verify-vertex",
+        headers={
+            "x-use-vertex-ai": "true",
+            "x-gcp-project-id": "afrl-sandbox-12345"
+        }
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is False
+    assert "gcloud auth application-default login" in data["message"]
 
