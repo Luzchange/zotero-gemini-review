@@ -1,6 +1,9 @@
 import logging
+import ssl
+import httpx
 from typing import List
 from fastapi import APIRouter, Request, HTTPException
+
 
 from app.config import get_credentials
 from app.services.zotero_service import ZoteroService
@@ -99,6 +102,94 @@ async def verify_vertex(request: Request):
             "project_id": project_id,
             "message": f"Vertex AI ADC check failed: {err_str}. Please run 'gcloud auth application-default login' in terminal."
         }
+
+@router.post("/verify-genaimil")
+async def verify_genaimil(request: Request):
+    """
+    Verify GenAI.mil token connectivity, DoD network access, SSL handshake, and list accessible models.
+    """
+    creds = get_credentials(request)
+    token = creds.get("gemini_key") or ""
+    base_url = (creds.get("gemini_base_url") or "https://api.genai.mil/v1").rstrip("/")
+
+    if not token:
+        return {
+            "success": False,
+            "message": "GenAI.mil token missing. Please enter your STARK token in Settings."
+        }
+
+    models_endpoint = f"{base_url}/models"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "api-key": token,
+        "Content-Type": "application/json"
+    }
+
+    discovered_models = []
+
+    for verify_ssl in [True, False]:
+        try:
+            async with httpx.AsyncClient(timeout=12.0, trust_env=True, verify=verify_ssl) as client:
+                resp = await client.get(models_endpoint, headers=headers)
+                
+                # Check for DoD/Gov network firewall block
+                if resp.status_code == 403 and ("outside of DoW networks" in resp.text or "Unauthorized Access" in resp.text):
+                    return {
+                        "success": False,
+                        "message": "Firewall Block: GenAI.mil can only be accessed from inside DoD/DoW networks. Please connect to your military VPN (e.g. GlobalProtect)."
+                    }
+
+                if resp.status_code == 401:
+                    return {
+                        "success": False,
+                        "message": "GenAI.mil authentication failed (HTTP 401). Your STARK token appears invalid or expired."
+                    }
+
+                if resp.status_code == 200:
+                    data = resp.json().get("data", [])
+                    discovered_models = [m.get("id") for m in data if m.get("id")]
+                    return {
+                        "success": True,
+                        "message": f"Successfully connected to GenAI.mil! Accessible models: {', '.join(discovered_models[:5]) if discovered_models else 'Standard STARK Suite'}.",
+                        "models": discovered_models,
+                        "ssl_bypassed": not verify_ssl
+                    }
+                
+                # Some gateways don't implement /models but implement /chat/completions probe
+                if resp.status_code in [404, 405]:
+                    chat_endpoint = f"{base_url}/chat/completions"
+                    probe_payload = {
+                        "model": "gpt-4o",
+                        "messages": [{"role": "user", "content": "ping"}],
+                        "max_tokens": 1
+                    }
+                    probe_resp = await client.post(chat_endpoint, headers=headers, json=probe_payload)
+                    if probe_resp.status_code in [200, 400]:
+                        return {
+                            "success": True,
+                            "message": "Successfully connected and authenticated with GenAI.mil DoD Enterprise Gateway!",
+                            "models": ["gpt-4o", "gpt-4-turbo", "gpt-4", "gemini-1.5-pro", "gpt-35-turbo"],
+                            "ssl_bypassed": not verify_ssl
+                        }
+
+        except (httpx.ConnectError, ssl.SSLError) as ssl_err:
+            if verify_ssl:
+                continue  # Retry with verify=False for NIPR DoD inspection
+            return {
+                "success": False,
+                "message": f"Could not reach GenAI.mil: {ssl_err}. Check your network connection or DoD proxy."
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"Connection error: {str(e)}"
+            }
+
+    return {
+        "success": False,
+        "message": "Could not establish connection to GenAI.mil endpoint. Ensure you are on a DoD/Gov network."
+    }
+
 
 def get_gemini_service(request: Request) -> GeminiService:
     creds = get_credentials(request)

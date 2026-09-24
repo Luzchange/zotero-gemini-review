@@ -185,3 +185,45 @@ def test_verify_vertex_endpoint_with_credentials_json(monkeypatch):
     assert data["success"] is True
     assert data["project_id"] == "afrl-il4-rch-usafsamoe-aewa"
 
+def test_verify_genaimil_missing_token():
+    response = client.post(
+        "/api/review/verify-genaimil",
+        headers={"x-gemini-key": ""}
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is False
+    assert "token missing" in data["message"].lower()
+
+def test_verify_genaimil_success(monkeypatch):
+    import httpx
+
+    class MockResp:
+        status_code = 200
+        def json(self):
+            return {
+                "data": [
+                    {"id": "gpt-4o"},
+                    {"id": "gpt-4-turbo"},
+                    {"id": "gemini-1.5-pro"}
+                ]
+            }
+
+    async def mock_get(self, url, headers=None):
+        return MockResp()
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
+
+    response = client.post(
+        "/api/review/verify-genaimil",
+        headers={
+            "x-gemini-key": "STARK_valid_token_123",
+            "x-gemini-base-url": "https://api.genai.mil/v1"
+        }
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert "gpt-4o" in data["models"]
+
+

@@ -3,6 +3,8 @@ import logging
 import io
 from typing import List, Dict, Any, Optional, Tuple
 import httpx
+import ssl
+
 import markdown
 import asyncio
 from fastapi import HTTPException
@@ -59,13 +61,16 @@ class GeminiService:
         user_prompt: str,
         temperature: float = 0.2
     ) -> str:
-        """Call an OpenAI-compatible endpoint such as GenAI.mil (/v1/chat/completions)."""
-        endpoint = self.base_url.rstrip("/")
-        if not endpoint.endswith("/chat/completions"):
-            endpoint = f"{endpoint}/chat/completions"
+        """Call an OpenAI-compatible endpoint such as GenAI.mil (/v1/chat/completions) with NIPR SSL & model cascade support."""
+        raw_endpoint = self.base_url.rstrip("/")
+        if not raw_endpoint.endswith("/chat/completions"):
+            endpoint = f"{raw_endpoint}/chat/completions"
+        else:
+            endpoint = raw_endpoint
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
+            "api-key": self.api_key,
             "Content-Type": "application/json"
         }
         messages = []
@@ -73,52 +78,86 @@ class GeminiService:
             messages.append({"role": "system", "content": system_instruction})
         messages.append({"role": "user", "content": user_prompt})
 
-        actual_model = model
-        if not actual_model or actual_model == "auto":
-            actual_model = "gemini-2.5-flash"
+        # GenAI.mil STARK gateways predominantly serve OpenAI models (gpt-4o, gpt-4-turbo, etc.)
+        if not model or model == "auto":
+            candidate_models = ["gpt-4o", "gpt-4-turbo", "gpt-4", "gemini-1.5-pro", "gemini-2.5-flash", "gpt-35-turbo"]
+        else:
+            candidate_models = [model, "gpt-4o", "gpt-4-turbo", "gemini-1.5-pro", "gpt-35-turbo"]
 
-        payload = {
-            "model": actual_model,
-            "messages": messages,
-            "temperature": temperature
-        }
+        last_error = None
 
-        logger.info(f"Dispatching request to GenAI endpoint: {endpoint} (model: {actual_model})")
-        try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                resp = await client.post(endpoint, headers=headers, json=payload)
-                if resp.is_error:
-                    if "outside of DoW networks" in resp.text or "Unauthorized Access - GenAI.mil" in resp.text:
-                        error_detail = (
-                            "GenAI.mil Network Firewall Block: "
-                            "GenAI.mil can only be accessed from inside DoD/DoW networks. "
-                            "Please connect to your military/command VPN (e.g. GlobalProtect) to use this token, "
-                            "or switch to a standard Google AI Studio key if working off-network."
-                        )
-                    else:
-                        try:
-                            err_json = resp.json()
-                            error_detail = err_json.get("error", {}).get("message") or err_json.get("detail") or resp.text
-                        except Exception:
-                            if "<html" in resp.text.lower():
-                                error_detail = f"Endpoint returned an HTML page instead of JSON (HTTP {resp.status_code})"
-                            else:
-                                error_detail = resp.text
+        for candidate in candidate_models:
+            payload = {
+                "model": candidate,
+                "messages": messages,
+                "temperature": temperature
+            }
+            logger.info(f"Dispatching request to GenAI endpoint: {endpoint} (candidate model: {candidate})")
 
-                    raise HTTPException(
-                        status_code=resp.status_code if resp.status_code >= 400 else 502,
-                        detail=error_detail
-                    )
-                data = resp.json()
-                choices = data.get("choices", [])
-                if not choices:
-                    raise HTTPException(status_code=502, detail=f"No response choices returned by GenAI: {data}")
-                return choices[0]["message"]["content"]
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error connecting to GenAI endpoint ({endpoint}): {e}")
-            raise HTTPException(status_code=502, detail=f"Failed to connect to GenAI endpoint: {str(e)}")
+            # Try request with standard SSL verification first; if NIPR DoD certificate fails, auto-retry with verify=False
+            for verify_ssl in [True, False]:
+                try:
+                    async with httpx.AsyncClient(timeout=120.0, trust_env=True, verify=verify_ssl) as client:
+                        resp = await client.post(endpoint, headers=headers, json=payload)
+                        
+                        if resp.is_error:
+                            err_text = resp.text
+                            # Check for DoD/Gov network firewall block
+                            if "outside of DoW networks" in err_text or "Unauthorized Access - GenAI.mil" in err_text:
+                                raise HTTPException(
+                                    status_code=403,
+                                    detail=(
+                                        "GenAI.mil Network Firewall Block: "
+                                        "GenAI.mil can only be accessed from inside DoD/DoW networks. "
+                                        "Please connect to your military/command VPN (e.g. GlobalProtect) to use this token, "
+                                        "or switch to a standard Google AI Studio key if working off-network."
+                                    )
+                                )
+
+                            # Check for model not found / unsupported on STARK gateway
+                            is_model_error = any(phrase in err_text.lower() for phrase in [
+                                "model not found", "does not exist", "not found for api version", "model_not_found", "unsupported model"
+                            ])
+                            if is_model_error and candidate != candidate_models[-1]:
+                                logger.warning(f"GenAI.mil model '{candidate}' not available. Cascading to next candidate...")
+                                break  # Break verify_ssl loop, advance candidate model
+
+                            try:
+                                err_json = resp.json()
+                                error_detail = err_json.get("error", {}).get("message") or err_json.get("detail") or err_text
+                            except Exception:
+                                if "<html" in err_text.lower():
+                                    error_detail = f"Endpoint returned an HTML page instead of JSON (HTTP {resp.status_code})"
+                                else:
+                                    error_detail = err_text
+
+                            raise HTTPException(
+                                status_code=resp.status_code if resp.status_code >= 400 else 502,
+                                detail=error_detail
+                            )
+
+                        data = resp.json()
+                        choices = data.get("choices", [])
+                        if not choices:
+                            raise HTTPException(status_code=502, detail=f"No response choices returned by GenAI: {data}")
+                        return choices[0]["message"]["content"]
+
+                except HTTPException:
+                    raise
+                except (httpx.ConnectError, ssl.SSLError) as ssl_err:
+                    err_msg = str(ssl_err).lower()
+                    if verify_ssl and ("certificate verify failed" in err_msg or "self-signed certificate" in err_msg or "ssl" in err_msg or "connect" in err_msg):
+                        logger.warning(f"DoD/NIPR SSL inspection error ({ssl_err}). Retrying with SSL verification bypass...")
+                        continue  # Try next verify_ssl iteration (verify=False)
+                    last_error = ssl_err
+                    break
+                except Exception as e:
+                    last_error = e
+                    break
+
+        logger.error(f"Error connecting to GenAI endpoint ({endpoint}): {last_error}")
+        raise HTTPException(status_code=502, detail=f"Failed to connect to GenAI endpoint: {str(last_error)}")
+
 
     def _get_client(self):
         """Lazy load google-genai client, supporting both Vertex AI (OAuth / ADC) and Google AI Studio (API Key)."""
@@ -217,11 +256,46 @@ class GeminiService:
         """List available models for this provider."""
         auto_entry = {"id": "auto", "display_name": "⚡ Auto (Best Available Model - Recommended)"}
         if self._is_openai_compatible():
-            return [
+            models = [
                 auto_entry,
-                {"id": "gemini-2.5-flash", "display_name": "gemini-2.5-flash (GenAI.mil Recommended)"},
-                {"id": "gemini-2.0-flash", "display_name": "gemini-2.0-flash"},
+                {"id": "gpt-4o", "display_name": "gpt-4o (GenAI.mil STARK Flagship)"},
+                {"id": "gpt-4-turbo", "display_name": "gpt-4-turbo (High Context)"},
+                {"id": "gpt-4", "display_name": "gpt-4 (Standard Enterprise)"},
+                {"id": "gemini-1.5-pro", "display_name": "gemini-1.5-pro (Long Context Analysis)"},
+                {"id": "claude-3-5-sonnet", "display_name": "claude-3-5-sonnet (DoD STARK)"},
+                {"id": "gemini-2.5-flash", "display_name": "gemini-2.5-flash"},
+                {"id": "gpt-35-turbo", "display_name": "gpt-35-turbo (Fast)"},
             ]
+            # Attempt live query from gateway
+            if self.api_key:
+                raw_endpoint = self.base_url.rstrip("/")
+                models_url = f"{raw_endpoint}/models" if not raw_endpoint.endswith("/v1") else f"{raw_endpoint}/models"
+                try:
+                    for verify_ssl in [True, False]:
+                        try:
+                            async with httpx.AsyncClient(timeout=5.0, trust_env=True, verify=verify_ssl) as client:
+                                resp = await client.get(
+                                    models_url,
+                                    headers={
+                                        "Authorization": f"Bearer {self.api_key}",
+                                        "api-key": self.api_key
+                                    }
+                                )
+                                if resp.status_code == 200:
+                                    data = resp.json().get("data", [])
+                                    if data:
+                                        discovered = [auto_entry]
+                                        for m in data:
+                                            m_id = m.get("id", "")
+                                            if m_id:
+                                                discovered.append({"id": m_id, "display_name": f"{m_id} (GenAI.mil)"})
+                                        return discovered
+                                break
+                        except Exception:
+                            continue
+                except Exception as e:
+                    logger.debug(f"Could not dynamically query GenAI.mil models: {e}")
+            return models
 
         if self.use_vertex_ai:
             return [

@@ -636,7 +636,7 @@ function setAuthProvider(provider) {
       modelSelect.value = 'gemini-2.5-flash';
     }
   } else if (provider === 'genaimil') {
-    if (modelSelect) modelSelect.value = 'gemini-2.5-flash';
+    if (modelSelect) modelSelect.value = 'gpt-4o';
   }
 }
 
@@ -686,6 +686,216 @@ async function testVertexAIAuth() {
     btn.innerHTML = originalHtml;
   }
 }
+
+async function testGenaiMilAuth() {
+  const btn = document.getElementById('btn-test-genaimil');
+  const statusSpan = document.getElementById('genaimil-test-status');
+  const keyInput = document.getElementById('modal-genaimil-key');
+  const urlInput = document.getElementById('modal-genaimil-base-url');
+
+  const token = keyInput.value.trim() || appState.credentials.geminiKey;
+  const baseUrl = urlInput.value.trim() || 'https://api.genai.mil/v1';
+
+  if (!token) {
+    statusSpan.className = 'text-[11px] text-rose-600 font-medium';
+    statusSpan.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> Please enter your STARK token first.';
+    return;
+  }
+
+  btn.disabled = true;
+  const originalHtml = btn.innerHTML;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> <span>Testing GenAI.mil...</span>';
+  statusSpan.className = 'text-[11px] text-slate-500 font-medium';
+  statusSpan.textContent = 'Connecting to DoD Enterprise Gateway...';
+
+  try {
+    const res = await fetch('/api/review/verify-genaimil', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Gemini-Key': token,
+        'X-Gemini-Base-Url': baseUrl,
+        'X-Auth-Provider': 'genaimil'
+      }
+    });
+    const data = await res.json();
+    if (data.success) {
+      statusSpan.className = 'text-[11px] text-emerald-600 font-medium';
+      let msg = data.message;
+      if (data.ssl_bypassed) {
+        msg += ' (NIPR DoD SSL inspection bypass active)';
+      }
+      statusSpan.innerHTML = `<i class="fa-solid fa-circle-check"></i> ${escapeHtml(msg)}`;
+      showToast('✓ GenAI.mil connection verified!');
+      fetchAvailableModels();
+    } else {
+      statusSpan.className = 'text-[11px] text-rose-600 font-medium';
+      statusSpan.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> ${escapeHtml(data.message || 'Verification failed.')}`;
+    }
+  } catch (err) {
+    statusSpan.className = 'text-[11px] text-rose-600 font-medium';
+    statusSpan.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Check failed: ${escapeHtml(err.message)}`;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
+  }
+}
+
+// -------------------------------------------------------------
+// Toast Notification System
+// -------------------------------------------------------------
+
+function showToast(message, type = 'info', duration = 3500) {
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    container.className = 'fixed bottom-5 right-5 z-50 flex flex-col space-y-2 pointer-events-none max-w-sm';
+    document.body.appendChild(container);
+  }
+
+  const toast = document.createElement('div');
+  toast.className = 'pointer-events-auto flex items-center space-x-2 px-3.5 py-2.5 bg-slate-900/95 text-white text-xs font-medium rounded-lg shadow-xl border border-slate-700/60 transform transition-all duration-200 translate-y-2 opacity-0';
+
+  let icon = '<i class="fa-solid fa-circle-info text-blue-400"></i>';
+  if (message.includes('✓') || type === 'success') {
+    icon = '<i class="fa-solid fa-circle-check text-emerald-400"></i>';
+  } else if (type === 'error' || message.toLowerCase().includes('fail') || message.toLowerCase().includes('error')) {
+    icon = '<i class="fa-solid fa-circle-exclamation text-rose-400"></i>';
+  }
+
+  toast.innerHTML = `
+    <span class="text-sm shrink-0">${icon}</span>
+    <span class="flex-1 leading-snug">${escapeHtml(message)}</span>
+    <button type="button" class="text-slate-400 hover:text-white shrink-0 ml-1 cursor-pointer" onclick="this.parentElement.remove()">
+      <i class="fa-solid fa-xmark text-xs"></i>
+    </button>
+  `;
+
+  container.appendChild(toast);
+
+  requestAnimationFrame(() => {
+    toast.classList.remove('translate-y-2', 'opacity-0');
+  });
+
+  setTimeout(() => {
+    toast.classList.add('opacity-0', 'translate-y-2');
+    setTimeout(() => toast.remove(), 250);
+  }, duration);
+}
+window.showToast = showToast;
+
+// -------------------------------------------------------------
+// Screen & Layout Expansion Helpers
+// -------------------------------------------------------------
+
+function toggleScreenExpand() {
+  const main = document.getElementById('main-container');
+  const btnIcon = document.getElementById('btn-toggle-screen-icon');
+  const btnText = document.getElementById('btn-toggle-screen-text');
+  if (!main) return;
+
+  const isExpanded = main.classList.contains('max-w-none');
+  if (isExpanded) {
+    main.classList.remove('max-w-none', 'px-8');
+    main.classList.add('max-w-7xl', 'px-6');
+    if (btnIcon) btnIcon.className = 'fa-solid fa-up-right-and-down-left-and-up-left-to-down-right';
+    if (btnText) btnText.textContent = 'Full Width';
+    localStorage.setItem('zg_screen_expanded', 'false');
+    showToast('Switched to Standard Width');
+  } else {
+    main.classList.remove('max-w-7xl', 'px-6');
+    main.classList.add('max-w-none', 'px-8');
+    if (btnIcon) btnIcon.className = 'fa-solid fa-down-left-and-up-right-to-center';
+    if (btnText) btnText.textContent = 'Standard Width';
+    localStorage.setItem('zg_screen_expanded', 'true');
+    showToast('✓ Screen expanded to Full Width!');
+  }
+}
+
+function toggleSidebar() {
+  const libSection = document.getElementById('library-section');
+  const studioSection = document.getElementById('studio-section');
+  const showSidebarBtn = document.getElementById('btn-show-sidebar');
+  if (!libSection || !studioSection) return;
+
+  const isHidden = libSection.classList.contains('hidden');
+  if (isHidden) {
+    libSection.classList.remove('hidden');
+    studioSection.classList.remove('col-span-12');
+    studioSection.classList.add('col-span-12', 'lg:col-span-7');
+    if (showSidebarBtn) showSidebarBtn.classList.add('hidden');
+    localStorage.setItem('zg_sidebar_collapsed', 'false');
+  } else {
+    libSection.classList.add('hidden');
+    studioSection.classList.remove('lg:col-span-7');
+    studioSection.classList.add('col-span-12');
+    if (showSidebarBtn) showSidebarBtn.classList.remove('hidden');
+    localStorage.setItem('zg_sidebar_collapsed', 'true');
+    showToast('Sidebar collapsed for wider document view.');
+  }
+}
+
+function toggleMaximizeOutput() {
+  const studioCard = document.getElementById('studio-card');
+  const maxIcon = document.getElementById('btn-maximize-icon');
+  const maxText = document.getElementById('btn-maximize-text');
+  const outputContent = document.getElementById('output-content');
+  if (!studioCard) return;
+
+  const isMaximized = studioCard.classList.contains('fixed');
+  if (isMaximized) {
+    studioCard.classList.remove('fixed', 'inset-4', 'z-50', 'shadow-2xl');
+    studioCard.classList.add('h-[calc(100vh-140px)]');
+    if (maxIcon) maxIcon.className = 'fa-solid fa-expand';
+    if (maxText) maxText.textContent = 'Maximize';
+    if (outputContent) outputContent.classList.remove('text-base', 'leading-relaxed');
+  } else {
+    studioCard.classList.add('fixed', 'inset-4', 'z-50', 'shadow-2xl');
+    studioCard.classList.remove('h-[calc(100vh-140px)]');
+    if (maxIcon) maxIcon.className = 'fa-solid fa-compress';
+    if (maxText) maxText.textContent = 'Restore';
+    if (outputContent) outputContent.classList.add('text-base', 'leading-relaxed');
+    showToast('✓ Reading mode maximized! Press Esc or click Restore to exit.');
+  }
+}
+
+// ESC key to restore maximized reading view
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    const studioCard = document.getElementById('studio-card');
+    if (studioCard && studioCard.classList.contains('fixed')) {
+      toggleMaximizeOutput();
+    }
+  }
+});
+
+function initScreenLayout() {
+  if (localStorage.getItem('zg_screen_expanded') === 'true') {
+    const main = document.getElementById('main-container');
+    const btnIcon = document.getElementById('btn-toggle-screen-icon');
+    const btnText = document.getElementById('btn-toggle-screen-text');
+    if (main) {
+      main.classList.remove('max-w-7xl', 'px-6');
+      main.classList.add('max-w-none', 'px-8');
+    }
+    if (btnIcon) btnIcon.className = 'fa-solid fa-down-left-and-up-right-to-center';
+    if (btnText) btnText.textContent = 'Standard Width';
+  }
+
+  if (localStorage.getItem('zg_sidebar_collapsed') === 'true') {
+    const libSection = document.getElementById('library-section');
+    const studioSection = document.getElementById('studio-section');
+    const showSidebarBtn = document.getElementById('btn-show-sidebar');
+    if (libSection && studioSection) {
+      libSection.classList.add('hidden');
+      studioSection.classList.remove('lg:col-span-7');
+      studioSection.classList.add('col-span-12');
+      if (showSidebarBtn) showSidebarBtn.classList.remove('hidden');
+    }
+  }
+}
+
 
 // -------------------------------------------------------------
 // GCP Credentials JSON File Upload & Vercel Helper
@@ -1640,6 +1850,11 @@ async function reviewExternalArticle(idx, providerOverride = null) {
 
 // Initial UI setup on script load
 updateLiteratureEnginePills();
+initScreenLayout();
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initScreenLayout);
+}
+
 
 
 

@@ -85,6 +85,92 @@ async def test_gemini_service_openai_generation_mocked(monkeypatch):
 
     assert "# Mock GenAI.mil Review" in result
 
+@pytest.mark.asyncio
+async def test_gemini_service_openai_ssl_inspection_recovery(monkeypatch):
+    import httpx
+    service = GeminiService(api_key="STARK_nipr_token", base_url="https://api.genai.mil/v1")
+
+    attempts = []
+
+    class MockResponse:
+        status_code = 200
+        is_error = False
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "# NIPR SSL Recovery Success"
+                        }
+                    }
+                ]
+            }
+
+    async def mock_post(self, url, headers=None, json=None):
+        attempts.append(self._transport)
+        # First attempt with standard verify fails due to NIPR SSL interception
+        if len(attempts) == 1:
+            raise httpx.ConnectError("[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate")
+        return MockResponse()
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+    result = await service._generate_openai_compatible(
+        model="gpt-4o",
+        system_instruction="System prompt",
+        user_prompt="NIPR test",
+        temperature=0.2
+    )
+
+    assert "# NIPR SSL Recovery Success" in result
+    assert len(attempts) >= 2  # Proves auto-retry with verify=False succeeded
+
+@pytest.mark.asyncio
+async def test_gemini_service_openai_model_cascade(monkeypatch):
+    import httpx
+    service = GeminiService(api_key="STARK_nipr_token", base_url="https://api.genai.mil/v1")
+
+    tried_models = []
+
+    class MockResponse:
+        def __init__(self, model_name):
+            self.model_name = model_name
+            self.status_code = 200
+            self.is_error = False
+            self.text = '{"choices":[{"message":{"content":"# Cascade Review: ' + model_name + '"}}]}'
+
+        def json(self):
+            return {"choices": [{"message": {"content": f"# Cascade Review: {self.model_name}"}}]}
+
+    class MockFailResponse:
+        status_code = 404
+        is_error = True
+        text = '{"error": {"message": "The model gemini-2.5-flash does not exist on this gateway", "code": "model_not_found"}}'
+
+        def json(self):
+            return {"error": {"message": "The model gemini-2.5-flash does not exist on this gateway", "code": "model_not_found"}}
+
+    async def mock_post(self, url, headers=None, json=None):
+        m = json.get("model")
+        tried_models.append(m)
+        if m == "gemini-2.5-flash":
+            return MockFailResponse()
+        return MockResponse(m)
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+    result = await service._generate_openai_compatible(
+        model="gemini-2.5-flash",
+        system_instruction="System",
+        user_prompt="Cascade test"
+    )
+
+    assert "Cascade Review" in result
+    assert "gpt-4o" in tried_models  # Successfully fell back to gpt-4o!
+
+
 def test_gemini_service_default_model():
     service = GeminiService(api_key="fake_key")
     assert service.model == "auto"
